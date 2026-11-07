@@ -57,8 +57,8 @@ The current scope does not include native mobile apps, bank or payment integrati
 
 | Member | Volunteered role |
 |---|---|
-| Marta Polishchuk | Scrum Master / Project Manager; Agile Customer |
-| Alex Kachur | Scrum Master / Project Manager; Agile Customer |
+| Marta Polishchuk | Scrum Master / Project Manager|
+| Alex Kachur | Agile Customer ; AI Integration |
 | Sean Gowans | Frontend Developer |
 | Harkaran Singh Dhillon | Frontend Developer |
 | Brianna Dionisio | Frontend Developer; QA |
