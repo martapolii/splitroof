@@ -1,0 +1,48 @@
+.progress-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.progress-card.warning {
+  border-color: #d97706;
+}
+
+.progress-card.over {
+  border-color: #b91c1c;
+}
+
+.progress-track {
+  height: 14px;
+  background: #e5e7eb;
+  border-radius: 7px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+.progress-fill {
+  height: 100%;
+  transition: width 0.3s;
+}
+
+.progress-fill.ok {
+  background: #16a34a;
+}
+
+.progress-fill.warning {
+  background: #d97706;
+}
+
+.progress-fill.over {
+  background: #dc2626;
+}
+
+.warn-text {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.over-text {
+  color: #b91c1c;
+  font-weight: 700;
+}
