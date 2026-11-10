@@ -1,0 +1,30 @@
+.invite-section {
+  max-width: 420px;
+  padding: 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+
+.invite-code-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.invite-code {
+  font-family: monospace;
+  font-size: 1.6rem;
+  letter-spacing: 3px;
+  background: #f3f4f6;
+  padding: 8px 14px;
+  border-radius: 6px;
+}
+
+.success-text {
+  color: #15803d;
+}
+
+.error-text {
+  color: #b91c1c;
+}
