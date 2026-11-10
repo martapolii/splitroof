@@ -39,6 +39,10 @@ tests/          Automated and acceptance tests
 
 The folders above describe the planned structure and may be added as implementation progresses.
 
+## Running it locally
+
+- Frontend: install and run steps are in [frontend/README.md](frontend/README.md)
+
 ## Development workflow
 
 1. Select or create an issue in the [GitHub Project](https://github.com/users/martapolii/projects/6).
