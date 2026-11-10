@@ -42,6 +42,7 @@ The folders above describe the planned structure and may be added as implementat
 ## Running it locally
 
 - Frontend: install and run steps are in [frontend/README.md](frontend/README.md)
+- Backend: install and run steps are in [backend/README.md](backend/README.md)
 
 ## Development workflow
 
