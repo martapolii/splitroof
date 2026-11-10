@@ -12,7 +12,7 @@ const links = [
 
 export default function Header() {
   return (
-    <header className="site-header">
+    <header className="header">
       <NavLink to="/dashboard" className="logo">
         SplitRoof
       </NavLink>

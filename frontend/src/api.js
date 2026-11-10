@@ -16,3 +16,12 @@ export async function apiFetch(path, options = {}) {
   }
   return data;
 }
+
+// Authentication API methods
+export const AuthAPI = {
+  // Sign Up new user
+  signUp: (userData) => apiFetch('/auth/signup', {
+    method: 'POST',
+    body: userData
+  }),
+};
