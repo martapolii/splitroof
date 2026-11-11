@@ -39,6 +39,11 @@ tests/          Automated and acceptance tests
 
 The folders above describe the planned structure and may be added as implementation progresses.
 
+## Running it locally
+
+- Frontend: install and run steps are in [frontend/README.md](frontend/README.md)
+- Backend: install and run steps are in [backend/README.md](backend/README.md)
+
 ## Development workflow
 
 1. Select or create an issue in the [GitHub Project](https://github.com/users/martapolii/projects/6).
@@ -57,8 +62,8 @@ The current scope does not include native mobile apps, bank or payment integrati
 
 | Member | Volunteered role |
 |---|---|
-| Marta Polishchuk | Scrum Master / Project Manager|
-| Alex Kachur | Agile Customer ; AI Integration |
+| Marta Polishchuk | Scrum Master / Project Manager; Backup Developer |
+| Alex Kachur | Agile Customer; AI Integration |
 | Sean Gowans | Frontend Developer |
 | Harkaran Singh Dhillon | Frontend Developer |
 | Brianna Dionisio | Frontend Developer; QA |
