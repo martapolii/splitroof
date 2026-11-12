@@ -4,7 +4,7 @@ This folder contains automated and acceptance tests for SplitRoof.
 
 ## Provisional responsibility
 
-- Mohammed Baig — QA coordination, acceptance traceability, and release evidence
+- Mohammad Baig — QA coordination, acceptance traceability, and release evidence
 - Brianna Dionisio — frontend/QA integration and cross-browser checks
 - Frontend and backend developers — tests for the code they implement
 
