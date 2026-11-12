@@ -1,5 +1,6 @@
 import { NavLink } from "react-router-dom";
 import "./Header.css";
+import LogoutButton from "./LogoutButton";
 
 // Iteration 1 pages only. Budgets, Settle Up and settlement history come in Iteration 2.
 const links = [
@@ -24,8 +25,8 @@ export default function Header() {
               {link.label}
             </NavLink>
           ))}
-          {/* Log Out button goes here (HM16) */}
-        </nav>
+   <LogoutButton />       
+    </nav>
       </div>
     </header>
   );
