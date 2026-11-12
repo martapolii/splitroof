@@ -2,7 +2,6 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const db = require("./config/firebase");
-const { notFound, errorHandler } = require("./middleware/error");
 
 const app = express();
 
@@ -30,8 +29,5 @@ app.get("/api/firestore-check", async (req, res, next) => {
     next(err);
   }
 });
-
-app.use(notFound);
-app.use(errorHandler);
 
 module.exports = app;
