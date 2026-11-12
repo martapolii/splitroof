@@ -80,6 +80,16 @@
   color: var(--blue);
 }
 
+.header .logo {
+  margin-right: auto;
+  font-size: 18px;
+  letter-spacing: 2px;
+}
+
+.header .nav-links a {
+  white-space: nowrap;
+}
+
 /* Hamburger */
 .header .icon-hamburger {
   width: 18px;
@@ -189,7 +199,7 @@
   }
 
   .header > .container .nav-links {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     gap: 12px;
   }
 

@@ -13,18 +13,20 @@ const links = [
 export default function Header() {
   return (
     <header className="header">
-      <NavLink to="/dashboard" className="logo">
-        SplitRoof
-      </NavLink>
-
-      <nav>
-        {links.map((link) => (
-          <NavLink key={link.to} to={link.to} className="nav-link">
-            {link.label}
+      <div className="container">
+        <nav className="nav-links">
+          <NavLink to="/dashboard" className="logo">
+            SplitRoof
           </NavLink>
-        ))}
-        {/* Log Out button goes here (HM16) */}
-      </nav>
+
+          {links.map((link) => (
+            <NavLink key={link.to} to={link.to}>
+              {link.label}
+            </NavLink>
+          ))}
+          {/* Log Out button goes here (HM16) */}
+        </nav>
+      </div>
     </header>
   );
 }

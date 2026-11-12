@@ -286,6 +286,22 @@ p, li {
   line-height: 1.4;
 }
 
+.info-box.error {
+  color: var(--red);
+}
+
+/* Pages inside the app (the header is fixed, so leave room for it) */
+.page {
+  width: 1500px;
+  max-width: 90%;
+  margin: 0 auto;
+  padding: 140px 0 60px;
+}
+
+.muted {
+  color: var(--grey);
+}
+
 a {
 	text-decoration: none;
   transition: all ease-in-out .2s!important;
