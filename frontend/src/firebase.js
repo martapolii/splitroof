@@ -12,12 +12,12 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-// Log a hint if the Firebase config isn't set up, otherwise getAuth just fails.
-if (!firebaseConfig.apiKey) {
+// Skip startup when the key is missing. initializeApp throws and blanks the page.
+const app = firebaseConfig.apiKey ? initializeApp(firebaseConfig) : null;
+
+if (!app) {
   console.error("Firebase config is missing. Copy .env.example to .env and fill in the VITE_FIREBASE_ values.");
 }
 
-const app = initializeApp(firebaseConfig);
-
-export const auth = getAuth(app);
+export const auth = app ? getAuth(app) : null;
 export default app;

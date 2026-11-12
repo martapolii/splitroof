@@ -1,3 +1,6 @@
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { auth } from "./firebase.js";
+
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
 // The Firebase ID token gets added to the headers in HM1.
@@ -16,3 +19,37 @@ export async function apiFetch(path, options = {}) {
   }
   return data;
 }
+
+function signUpError(error) {
+  if (error?.code === "auth/email-already-in-use") {
+    return new Error("An account with this email already exists.");
+  }
+  if (error?.code === "auth/weak-password") {
+    return new Error("Password must be at least 6 characters.");
+  }
+  if (error?.code === "auth/invalid-email") {
+    return new Error("Please enter a valid email.");
+  }
+  return error;
+}
+
+export const AuthAPI = {
+  // Create the account with the Firebase Web SDK. Saving the username waits on #105.
+  signUp: async ({ email, password }) => {
+    if (!auth) {
+      throw new Error("Firebase config is missing. Copy .env.example to .env and fill in the VITE_FIREBASE_ values.");
+    }
+
+    try {
+      const credential = await createUserWithEmailAndPassword(auth, email, password);
+      return {
+        user: {
+          uid: credential.user.uid,
+          email: credential.user.email,
+        },
+      };
+    } catch (error) {
+      throw signUpError(error);
+    }
+  },
+};
