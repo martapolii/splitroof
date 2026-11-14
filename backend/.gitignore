@@ -1,4 +1,5 @@
 .env
+*serviceAccount*.json
 .env.*
 !.env.example
 node_modules/
