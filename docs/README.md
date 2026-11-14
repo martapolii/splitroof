@@ -13,6 +13,7 @@ Responsibilities are provisional and may change as deliverables are assigned.
 
 ## Planned contents
 
+- [Firestore data model](firestore-data-model.md): collection names, field names, and how money and dates are stored
 - Architecture and design diagrams
 - User roles, user stories, and release plans
 - Test plan, acceptance evidence, and progress records
