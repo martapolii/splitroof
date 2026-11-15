@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const { notFound, errorHandler } = require("./middleware/error");
+const { requireAuth } = require("./middleware/auth");
 
 const app = express();
 
@@ -17,6 +18,10 @@ app.use(express.json());
 
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
+});
+
+app.get("/api/me", requireAuth, (req, res) => {
+  res.json({ uid: req.user.uid });
 });
 
 app.use(notFound);
