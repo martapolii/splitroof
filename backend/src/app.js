@@ -1,6 +1,8 @@
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
+// Starts the Firebase Admin SDK when the API starts
+require("./config/firebase");
 const { notFound, errorHandler } = require("./middleware/error");
 
 const app = express();
