@@ -19,10 +19,11 @@ function inviteCode() {
   return code;
 }
 
-async function currentHouseholdId(uid) {
-  const snap = await db().collection("users").doc(uid).get();
-  if (!snap.exists) return null;
-  return snap.data().currentHouseholdId || null;
+async function setCurrentHousehold(uid, householdId) {
+  await db().collection("users").doc(uid).set(
+    { currentHouseholdId: householdId },
+    { merge: true }
+  );
 }
 
 function householdBody(id, data) {
@@ -35,17 +36,18 @@ function householdBody(id, data) {
   };
 }
 
-// No membership check: there is no household to belong to yet.
+function httpError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+// No membership check: belonging to a household does not block creating another.
 async function createHousehold(req, res, next) {
   try {
     const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
     if (!name) {
       return res.status(400).json({ error: "Household name is required" });
-    }
-
-    const existing = await currentHouseholdId(req.user.uid);
-    if (existing) {
-      return res.status(409).json({ error: "You already belong to a household" });
     }
 
     let code = inviteCode();
@@ -63,10 +65,7 @@ async function createHousehold(req, res, next) {
       inviteCode: code,
     };
     await ref.set(household);
-    await db().collection("users").doc(req.user.uid).set(
-      { currentHouseholdId: ref.id },
-      { merge: true }
-    );
+    await setCurrentHousehold(req.user.uid, ref.id);
     return res.status(201).json(householdBody(ref.id, household));
   } catch (err) {
     return next(err);
@@ -74,6 +73,7 @@ async function createHousehold(req, res, next) {
 }
 
 // No membership check: the code is what lets a non-member in.
+// Reads and writes run in one transaction so overlapping joins cannot drop a member.
 async function joinHousehold(req, res, next) {
   try {
     const inviteCodeValue = typeof req.body?.inviteCode === "string" ? req.body.inviteCode.trim() : "";
@@ -81,37 +81,36 @@ async function joinHousehold(req, res, next) {
       return res.status(400).json({ error: "Invite code is required" });
     }
 
-    const found = await db()
-      .collection("households")
-      .where("inviteCode", "==", inviteCodeValue)
-      .limit(1)
-      .get();
-    if (found.empty) {
-      return res.status(404).json({ error: "Invite code is not valid" });
-    }
+    const household = await db().runTransaction(async (transaction) => {
+      const found = await transaction.get(
+        db().collection("households").where("inviteCode", "==", inviteCodeValue).limit(1)
+      );
+      if (found.empty) {
+        throw httpError(404, "Invite code is not valid");
+      }
 
-    const doc = found.docs[0];
-    const household = doc.data();
-    const memberIds = Array.isArray(household.memberIds) ? household.memberIds : [];
-    if (memberIds.includes(req.user.uid)) {
-      return res.json(householdBody(doc.id, { ...household, memberIds }));
-    }
+      const doc = found.docs[0];
+      const data = doc.data() || {};
+      const userRef = db().collection("users").doc(req.user.uid);
+      await transaction.get(userRef);
 
-    const existing = await currentHouseholdId(req.user.uid);
-    if (existing && existing !== doc.id) {
-      return res.status(409).json({ error: "You already belong to a household" });
-    }
-    if (memberIds.length >= 6) {
-      return res.status(400).json({ error: "This household is full" });
-    }
+      const memberIds = Array.isArray(data.memberIds) ? data.memberIds : [];
+      if (memberIds.includes(req.user.uid)) {
+        transaction.set(userRef, { currentHouseholdId: doc.id }, { merge: true });
+        return householdBody(doc.id, { ...data, memberIds });
+      }
 
-    const nextMembers = [...memberIds, req.user.uid];
-    await db().collection("households").doc(doc.id).update({ memberIds: nextMembers });
-    await db().collection("users").doc(req.user.uid).set(
-      { currentHouseholdId: doc.id },
-      { merge: true }
-    );
-    return res.json(householdBody(doc.id, { ...household, memberIds: nextMembers }));
+      if (memberIds.length >= 6) {
+        throw httpError(400, "This household is full");
+      }
+
+      const nextMembers = [...memberIds, req.user.uid];
+      transaction.update(db().collection("households").doc(doc.id), { memberIds: nextMembers });
+      transaction.set(userRef, { currentHouseholdId: doc.id }, { merge: true });
+      return householdBody(doc.id, { ...data, memberIds: nextMembers });
+    });
+
+    return res.json(household);
   } catch (err) {
     return next(err);
   }

@@ -8,19 +8,53 @@ jest.mock("firebase-admin/auth", () => ({
 
 jest.mock("../src/config/firebase", () => {
   const docs = {};
+  const versions = {};
   let sequence = 1;
+
+  function versionOf(key) {
+    return versions[key] || 0;
+  }
+
+  function bump(key) {
+    versions[key] = versionOf(key) + 1;
+  }
+
+  function writeDoc(key, data, options) {
+    if (options && options.merge && docs[key]) {
+      docs[key] = { ...docs[key], ...data };
+    } else {
+      docs[key] = { ...data };
+    }
+    bump(key);
+  }
+
+  function updateDoc(key, partial) {
+    docs[key] = { ...docs[key], ...partial };
+    bump(key);
+  }
+
+  function snapshotData(data) {
+    if (!data) return data;
+    return {
+      ...data,
+      memberIds: Array.isArray(data.memberIds) ? [...data.memberIds] : data.memberIds,
+    };
+  }
 
   function matches(name, field, value) {
     return Object.entries(docs)
       .filter(([key, data]) => key.startsWith(`${name}/`) && data[field] === value)
       .map(([key, data]) => ({
         id: key.slice(name.length + 1),
+        refKey: key,
         data: () => data,
       }));
   }
 
-  return {
+  const api = {
     docs,
+    versions,
+    afterHouseholdRead: null,
     collection(name) {
       return {
         doc(id) {
@@ -29,6 +63,7 @@ jest.mock("../src/config/firebase", () => {
           const key = `${name}/${docId}`;
           return {
             id: docId,
+            _key: key,
             async get() {
               const data = docs[key];
               return {
@@ -38,19 +73,16 @@ jest.mock("../src/config/firebase", () => {
               };
             },
             async set(data, options) {
-              if (options && options.merge && docs[key]) {
-                docs[key] = { ...docs[key], ...data };
-              } else {
-                docs[key] = { ...data };
-              }
+              writeDoc(key, data, options);
             },
             async update(partial) {
-              docs[key] = { ...docs[key], ...partial };
+              updateDoc(key, partial);
             },
           };
         },
         where(field, _op, value) {
           return {
+            _collection: name,
             limit() {
               return this;
             },
@@ -62,7 +94,70 @@ jest.mock("../src/config/firebase", () => {
         },
       };
     },
+    async runTransaction(updateFunction) {
+      const maxAttempts = 5;
+      let lastError;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const readVersions = new Map();
+        const writes = [];
+        let startedWriting = false;
+
+        const transaction = {
+          async get(target) {
+            if (startedWriting) {
+              throw new Error("Firestore transactions require all reads to be executed before all writes.");
+            }
+            const snap = await target.get();
+            if (Array.isArray(snap.docs)) {
+              const frozenDocs = snap.docs.map((doc) => {
+                readVersions.set(doc.refKey, versionOf(doc.refKey));
+                const frozen = snapshotData(doc.data());
+                return { ...doc, data: () => frozen };
+              });
+              if (target._collection === "households" && typeof api.afterHouseholdRead === "function") {
+                await api.afterHouseholdRead();
+              }
+              return { empty: frozenDocs.length === 0, docs: frozenDocs };
+            }
+
+            readVersions.set(target._key, versionOf(target._key));
+            const frozen = snapshotData(snap.data());
+            if (typeof target._key === "string" && target._key.startsWith("households/") && typeof api.afterHouseholdRead === "function") {
+              await api.afterHouseholdRead();
+            }
+            return { ...snap, data: () => frozen };
+          },
+          update(ref, partial) {
+            startedWriting = true;
+            writes.push(() => updateDoc(ref._key, partial));
+          },
+          set(ref, data, options) {
+            startedWriting = true;
+            writes.push(() => writeDoc(ref._key, data, options));
+          },
+        };
+
+        try {
+          const result = await updateFunction(transaction);
+          for (const [key, version] of readVersions) {
+            if (versionOf(key) !== version) {
+              const err = new Error("Transaction aborted due to contention");
+              err.code = 10;
+              throw err;
+            }
+          }
+          writes.forEach((apply) => apply());
+          return result;
+        } catch (err) {
+          if (err.code !== 10) throw err;
+          lastError = err;
+        }
+      }
+      throw lastError;
+    },
   };
+
+  return api;
 });
 
 const app = require("../src/app");
@@ -70,6 +165,8 @@ const db = require("../src/config/firebase");
 
 function seed() {
   Object.keys(db.docs).forEach((key) => delete db.docs[key]);
+  Object.keys(db.versions).forEach((key) => delete db.versions[key]);
+  db.afterHouseholdRead = null;
   db.docs["households/houseA"] = {
     name: "Apartment A",
     adminId: "alex",
@@ -153,5 +250,110 @@ describe("household membership", () => {
       .get("/api/households/houseA")
       .set("Authorization", "Bearer pat-token");
     expect(read.status).toBe(200);
+  });
+
+  it("lets a member create another household without leaving the first", async () => {
+    const created = await request(app)
+      .post("/api/households")
+      .set("Authorization", "Bearer alex-token")
+      .send({ name: "Apartment C" });
+
+    expect(created.status).toBe(201);
+    expect(created.body.memberIds).toEqual(["alex"]);
+    expect(created.body.adminId).toBe("alex");
+    expect(db.docs["households/houseA"].memberIds).toEqual(["alex"]);
+    expect(db.docs["users/alex"].currentHouseholdId).toBe(created.body.id);
+
+    const previous = await request(app)
+      .get("/api/households/houseA")
+      .set("Authorization", "Bearer alex-token");
+    expect(previous.status).toBe(200);
+
+    const current = await request(app)
+      .get(`/api/households/${created.body.id}`)
+      .set("Authorization", "Bearer alex-token");
+    expect(current.status).toBe(200);
+  });
+
+  it("lets a member join another household and keeps the previous membership", async () => {
+    const joined = await request(app)
+      .post("/api/households/join")
+      .set("Authorization", "Bearer alex-token")
+      .send({ inviteCode: "BBBBBBBB" });
+
+    expect(joined.status).toBe(200);
+    expect(joined.body.id).toBe("houseB");
+    expect(joined.body.memberIds).toEqual(["sam", "alex"]);
+    expect(db.docs["households/houseA"].memberIds).toEqual(["alex"]);
+    expect(db.docs["users/alex"].currentHouseholdId).toBe("houseB");
+
+    const previous = await request(app)
+      .get("/api/households/houseA")
+      .set("Authorization", "Bearer alex-token");
+    expect(previous.status).toBe(200);
+  });
+
+  it("switches the current household when joining one the user already belongs to", async () => {
+    db.docs["users/alex"].currentHouseholdId = "houseB";
+    db.docs["households/houseB"].memberIds = ["sam", "alex"];
+
+    const joined = await request(app)
+      .post("/api/households/join")
+      .set("Authorization", "Bearer alex-token")
+      .send({ inviteCode: "AAAAAAAA" });
+
+    expect(joined.status).toBe(200);
+    expect(joined.body.memberIds).toEqual(["alex"]);
+    expect(db.docs["users/alex"].currentHouseholdId).toBe("houseA");
+    expect(db.docs["households/houseB"].memberIds).toEqual(["sam", "alex"]);
+  });
+
+  it("rejects a join when the household already has 6 members", async () => {
+    db.docs["households/houseA"].memberIds = ["a", "b", "c", "d", "e", "f"];
+
+    const res = await request(app)
+      .post("/api/households/join")
+      .set("Authorization", "Bearer pat-token")
+      .send({ inviteCode: "AAAAAAAA" });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "This household is full" });
+    expect(db.docs["households/houseA"].memberIds).toEqual(["a", "b", "c", "d", "e", "f"]);
+    expect(db.docs["users/pat"]).toBeUndefined();
+  });
+
+  it("keeps both members when two people join at the same time", async () => {
+    let release;
+    const firstRead = new Promise((resolve) => {
+      db.afterHouseholdRead = () => {
+        if (release) return undefined;
+        return new Promise((done) => {
+          release = done;
+          resolve();
+        });
+      };
+    });
+
+    const patJoin = request(app)
+      .post("/api/households/join")
+      .set("Authorization", "Bearer pat-token")
+      .send({ inviteCode: "AAAAAAAA" });
+    // Supertest does not send the request until then() runs.
+    patJoin.then(() => {}, () => {});
+
+    await firstRead;
+    const samJoin = await request(app)
+      .post("/api/households/join")
+      .set("Authorization", "Bearer sam-token")
+      .send({ inviteCode: "AAAAAAAA" });
+    release();
+    const patJoined = await patJoin;
+
+    expect(samJoin.status).toBe(200);
+    expect(patJoined.status).toBe(200);
+    expect(db.docs["households/houseA"].memberIds).toEqual(["alex", "sam", "pat"]);
+    expect(db.docs["users/sam"].currentHouseholdId).toBe("houseA");
+    expect(db.docs["users/pat"].currentHouseholdId).toBe("houseA");
+    expect(db.docs["households/houseB"].memberIds).toEqual(["sam"]);
   });
 });

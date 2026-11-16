@@ -50,8 +50,10 @@ These rules apply to every collection.
 
 ### Household Membership
 
-- A person can belong to at most one household.
-- `currentHouseholdId` stores the household document ID.
+- A person can belong to more than one household.
+- `memberIds` on a household lists everyone who belongs to it.
+- `currentHouseholdId` stores the household the person is currently using.
+- Creating or joining a household sets `currentHouseholdId` to that household. It does not remove the person from households they already belong to.
 - If the person has not joined a household, `currentHouseholdId` must be `null`.
 
 ### Balances
@@ -131,14 +133,15 @@ Use these exact category names. They must match `frontend/src/categories.js`.
 |---|---|---|
 | `email` | string | User's email address, stored in lowercase |
 | `username` | string | Display name shown to roommates |
-| `currentHouseholdId` | string or null | Household document ID, or `null` if the user has not joined one |
+| `currentHouseholdId` | string or null | Household the person is currently using, or `null` if they have not joined one |
 
 ### Validation Rules
 
 - Emails must be saved in lowercase.
 - Usernames must be unique, ignoring capitalization.
 - Preserve the capitalization entered by the user.
-- `currentHouseholdId` must reference a valid household or be `null`.
+- `currentHouseholdId` must reference a household the person belongs to, or be `null`.
+- A person may appear in `memberIds` for more than one household at the same time.
 
 ---
 
