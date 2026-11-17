@@ -5,6 +5,7 @@ const helmet = require("helmet");
 require("./config/firebase");
 const { notFound, errorHandler } = require("./middleware/error");
 const { requireAuth } = require("./middleware/auth");
+const householdRoutes = require("./routes/households");
 
 const app = express();
 
@@ -25,6 +26,8 @@ app.get("/api/health", (req, res) => {
 app.get("/api/me", requireAuth, (req, res) => {
   res.json({ uid: req.user.uid });
 });
+
+app.use("/api/households", householdRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
