@@ -57,6 +57,12 @@ function signUpError(error) {
   return error;
 }
 
+// Seans Dashboard Code
+export const HouseholdAPI = {
+  // Household, members, budgets, expenses, and settlements for the signed-in user.
+  current: () => apiFetch("/api/households/current"),
+};
+
 export const AuthAPI = {
   // Create the account with the Firebase Web SDK. Saving the username waits on #105.
   signUp: async ({ email, password }) => {

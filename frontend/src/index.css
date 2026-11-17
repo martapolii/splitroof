@@ -67,6 +67,7 @@ b, strong {
   --border-radius-20: 20px;
   --ink: #f4f5f7;
   --page-bg: #14161a;
+  --page-blur: blur(16px);
   --page-motion: none;
 }
 
@@ -339,7 +340,7 @@ a:hover {
   flex: 1;
 }
 
-.login-form .frontend-button {
+.signup-form .frontend-button, .login-form .frontend-button {
   flex: 1;
   width: 100%;
 }

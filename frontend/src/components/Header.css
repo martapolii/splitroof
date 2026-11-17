@@ -10,8 +10,7 @@
 }
 
 .header.scroll-active {
-  padding: 10px 0;
-  backdrop-filter: blur(16px);
+  backdrop-filter: var(--page-blur);
 }
 
 .header.scroll-active .header-logo {
@@ -100,6 +99,10 @@
   cursor: pointer;
   display: none;
   z-index: 999;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: inherit;
 }
 
 .header .icon-hamburger span,
