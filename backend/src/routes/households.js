@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const express = require("express");
 const { requireAuth } = require("../middleware/auth");
+const { requireHouseholdMember } = require("../middleware/household");
 
 const router = express.Router();
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -38,6 +39,12 @@ function householdBody(id, data) {
   };
 }
 
+function httpError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
 // Creating another household does not remove the user from households they already belong to.
 async function createHousehold(req, res, next) {
   try {
@@ -64,6 +71,56 @@ async function createHousehold(req, res, next) {
   }
 }
 
+// No membership check: the code is what lets a non-member in.
+// Reads and writes run in one transaction so overlapping joins cannot drop a member.
+async function joinHousehold(req, res, next) {
+  try {
+    const inviteCodeValue = typeof req.body?.inviteCode === "string" ? req.body.inviteCode.trim().toUpperCase() : "";
+    if (!inviteCodeValue) {
+      return res.status(400).json({ error: "Invite code is required" });
+    }
+
+    const household = await db().runTransaction(async (transaction) => {
+      const found = await transaction.get(
+        db().collection("households").where("inviteCode", "==", inviteCodeValue).limit(1)
+      );
+      if (found.empty) {
+        throw httpError(404, "Invite code is not valid");
+      }
+
+      const doc = found.docs[0];
+      const data = doc.data() || {};
+      const userRef = db().collection("users").doc(req.user.uid);
+      await transaction.get(userRef);
+
+      const memberIds = Array.isArray(data.memberIds) ? data.memberIds : [];
+      if (memberIds.includes(req.user.uid)) {
+        transaction.set(userRef, { currentHouseholdId: doc.id }, { merge: true });
+        return householdBody(doc.id, { ...data, memberIds });
+      }
+
+      if (memberIds.length >= 6) {
+        throw httpError(400, "This household is full");
+      }
+
+      const nextMembers = [...memberIds, req.user.uid];
+      transaction.update(db().collection("households").doc(doc.id), { memberIds: nextMembers });
+      transaction.set(userRef, { currentHouseholdId: doc.id }, { merge: true });
+      return householdBody(doc.id, { ...data, memberIds: nextMembers });
+    });
+
+    return res.json(household);
+  } catch (err) {
+    return next(err);
+  }
+}
+
+function getHousehold(req, res) {
+  res.json(householdBody(req.household.id, req.household));
+}
+
 router.post("/", requireAuth, createHousehold);
+router.post("/join", requireAuth, joinHousehold);
+router.get("/:householdId", requireAuth, requireHouseholdMember, getHousehold);
 
 module.exports = router;

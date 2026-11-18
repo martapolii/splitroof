@@ -53,7 +53,7 @@ These rules apply to every collection.
 - A person can belong to more than one household.
 - `memberIds` on a household lists everyone who belongs to it.
 - `currentHouseholdId` stores the household the person is currently using.
-- Creating a household sets `currentHouseholdId` to the new household. It does not change households the person already belongs to.
+- Creating or joining a household sets `currentHouseholdId` to that household. It does not remove the person from households they already belong to.
 - If the person has not joined a household, `currentHouseholdId` must be `null`.
 
 ### Balances
