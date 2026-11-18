@@ -3,9 +3,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
 import { HouseholdAPI } from '../api.js';
-import { DEFAULT_CATEGORIES } from '../categories.js';
-import { CATEGORY_COLORS, formatMoney, getExpenseShares, getOwedToUsers, roundMoney } from '../utils/expenseUtils.js';
 import './Dashboard.css';
+
+const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
+
+const formatMoney = (value) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0);
 
 const SIZE = 180;
 const STROKE = 22;
@@ -31,81 +34,60 @@ const currentMonth = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 };
 
-const memberName = (members, uid) => {
-  const member = members.find((item) => item.uid === uid);
-  return member?.username || member?.uid || uid || '';
+const asDate = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') return value.slice(0, 10);
+  const seconds = value.seconds ?? value._seconds;
+  if (seconds) return new Date(seconds * 1000).toISOString().slice(0, 10);
+  return '';
 };
 
-// The charts still speak in dollars and names. Firestore stores cents and user ids.
-const toChartData = (data) => {
+const memberName = (members, uid) => {
+  const member = members.find((item) => item.uid === uid || item.id === uid);
+  return member?.username || member?.name || member?.uid || uid || '';
+};
+
+const amountOf = (item) => {
+  if (!item || typeof item !== 'object') return 0;
+  if (item.amountCents != null) return dollars(item.amountCents);
+  if (item.totalCents != null) return dollars(item.totalCents);
+  if (item.spentCents != null) return dollars(item.spentCents);
+  if (item.netCents != null) return dollars(item.netCents);
+  if (item.balanceCents != null) return dollars(item.balanceCents);
+  return roundMoney(item.amount);
+};
+
+// Each expense only needs an amount, a category, and the member who paid.
+const toChartData = (data = {}) => {
   const month = currentMonth();
   const members = Array.isArray(data.members) ? data.members : [];
-  const users = members.map((member) => member.username || member.uid).filter(Boolean);
-  const currentUser = memberName(members, data.user?.uid);
-  const budgets = Array.isArray(data.budgets) ? data.budgets : [];
-
-  const categories = DEFAULT_CATEGORIES.map((title) => {
-    const budget = budgets.find((item) => item.category === title && item.month === month);
-    return {
-      id: title,
-      title,
-      color: CATEGORY_COLOR[title] || CATEGORY_COLORS[0],
-      budget: dollars(budget?.limitCents),
-    };
-  });
-
-  const expenses = (data.expenses || []).map((expense) => {
-    const payer = memberName(members, expense.payerId);
-    const shares = {};
-    (expense.shares || []).forEach((share) => {
-      const name = memberName(members, share.userId);
-      if (!name || name === payer) return;
-      shares[name] = dollars(share.amountCents);
-    });
-
-    return {
-      id: expense.id,
-      title: expense.description || '',
-      amount: dollars(expense.amountCents),
-      paidBy: payer,
-      datePaid: expense.date || '',
-      categoryId: expense.category || '',
-      kind: 'shared',
-      splitType: 'value',
-      splitWith: [payer, ...Object.keys(shares)].filter(Boolean),
-      shares,
-      payments: {},
-      savedAt: expense.date || '',
-    };
-  });
-
-  const settlements = (data.settlements || []).map((settlement) => {
-    const payer = memberName(members, settlement.payerId);
-    const receiver = memberName(members, settlement.receiverId);
-    return {
-      id: settlement.id,
-      title: receiver ? `Payment to ${receiver}` : 'Payment',
-      amount: dollars(settlement.amountCents),
-      paidBy: payer,
-      datePaid: settlement.date || '',
-      categoryId: '',
-      kind: 'payment',
-      splitType: 'value',
-      splitWith: [receiver].filter(Boolean),
-      shares: receiver ? { [receiver]: dollars(settlement.amountCents) } : {},
-      payments: {},
-      savedAt: settlement.date || '',
-    };
-  });
+  const expenses = (data.expenses || []).map((expense) => ({
+    id: expense.id,
+    amount: amountOf(expense),
+    category: expense.category || expense.categoryId || 'Other',
+    member: memberName(members, expense.payerId) || expense.payerName || 'Other',
+    date: asDate(expense.date || expense.datePaid),
+    split: expense.split || '',
+    shares: (Array.isArray(expense.shares) ? expense.shares : []).map((share) => ({
+      member: memberName(members, share.userId || share.uid) || share.username || share.name || '',
+      amount: amountOf(share),
+    })).filter((share) => share.member),
+  }));
 
   return {
     hasHousehold: Boolean(data.household),
-    categories,
-    expenses: [...expenses, ...settlements],
-    users,
-    currentUser,
+    members: members.map((member) => member.username || member.name || member.uid).filter(Boolean),
+    expenses,
     month,
+    currentUser: memberName(members, data.user?.uid) || data.user?.username || '',
   };
+};
+
+const formatBalance = (value) => {
+  const amount = roundMoney(value);
+  if (amount > 0) return `+${formatMoney(amount)}`;
+  if (amount < 0) return `-${formatMoney(Math.abs(amount))}`;
+  return formatMoney(0);
 };
 
 const buildRings = (slices, total) => {
@@ -177,117 +159,58 @@ const DonutChart = ({ slices, total, centerAmount, centerDisplay, centerLabel, h
   );
 };
 
-const formatBalance = (value) => {
-  const amount = roundMoney(value);
-  if (amount > 0) return `+${formatMoney(amount)}`;
-  if (amount < 0) return `-${formatMoney(Math.abs(amount))}`;
-  return formatMoney(0);
-};
-
 const HouseholdDashboard = ({
-  categories = [],
   expenses = [],
-  users = [],
-  currentUser = '',
+  members = [],
   month = '',
   hasHousehold = false,
+  currentUser = '',
 }) => {
-  const items = categories.map((category) => ({
-    id: category.id,
-    title: category.title || 'Untitled',
-    color: category.color,
-    budget: Number(category.budget) || 0,
-  }));
-
-  const budgetSlices = items
-    .filter((item) => item.budget > 0)
-    .map((item) => ({ ...item, value: item.budget }))
-    .sort(byHighestValue);
-  const budgetLegendItems = [...items].sort((left, right) => (right.budget || 0) - (left.budget || 0));
-  const totalBudget = budgetSlices.reduce((sum, item) => sum + item.value, 0);
-
-  const householdSize = Math.max(users.filter(Boolean).length, 1);
-  const memberNames = users.filter(Boolean);
-  const monthlyTotal = roundMoney(
-    items
-      .filter((item) => item.budget > 0)
-      .reduce((sum, item) => sum + item.budget / householdSize, 0)
-  );
-  const paidExpenses = expenses.filter((expense) => (
-    expense.kind !== 'payment'
-    && expense.datePaid
-    && (!month || String(expense.datePaid).startsWith(month))
+  const monthExpenses = expenses.filter((expense) => (
+    expense.date && (!month || String(expense.date).startsWith(month)) && expense.amount > 0
   ));
-  const shareOf = (expense) => (
-    currentUser ? getExpenseShares(expense, memberNames)[currentUser] || 0 : 0
-  );
-  const paidForCategory = (categoryId) => roundMoney(
-    paidExpenses
-      .filter((expense) => expense.categoryId === categoryId)
-      .reduce((sum, expense) => sum + shareOf(expense), 0)
-  );
-  const categorizedPaid = items
-    .map((item) => ({ ...item, paid: paidForCategory(item.id) }))
-    .filter((item) => item.paid > 0);
-  const otherPaid = roundMoney(
-    paidExpenses
-      .filter((expense) => !items.some((item) => item.id === expense.categoryId))
-      .reduce((sum, expense) => sum + shareOf(expense), 0)
-  );
-  const paidSlices = otherPaid > 0
-    ? [...categorizedPaid, { id: 'other', title: 'Other', color: '#808080', paid: otherPaid }]
-    : categorizedPaid;
-  const paidTotal = roundMoney(paidSlices.reduce((sum, item) => sum + item.paid, 0));
-  const remaining = Math.max(roundMoney(monthlyTotal - paidTotal), 0);
-  const overShare = monthlyTotal > 0 && paidTotal > monthlyTotal;
-  // The expenses ring is the full circle. Spending and balances fill that same amount.
-  const ringTotal = totalBudget > 0 ? totalBudget : Math.max(paidTotal, 0);
-  const fitToExpenses = (amount, sum) => {
-    if (!(ringTotal > 0) || !(sum > ringTotal)) return amount;
-    return roundMoney(amount * (ringTotal / sum));
+  const shareOf = (expense, name) => {
+    const listed = (expense.shares || []).find((share) => share.member === name);
+    if (listed) return listed.amount;
+    const custom = expense.split === 'custom';
+    if (!custom && members.length) return roundMoney(expense.amount / members.length);
+    return 0;
   };
-  const monthlySlices = paidSlices
-    .map((item) => ({
-      id: item.id,
-      title: item.title,
-      color: item.color,
-      value: fitToExpenses(item.paid, paidTotal),
-      amountLabel: formatMoney(item.paid),
-      paid: item.paid,
+  const balance = roundMoney(monthExpenses.reduce((sum, expense) => {
+    const mine = shareOf(expense, currentUser);
+    if (expense.member === currentUser) return sum + (expense.amount - mine);
+    return sum - mine;
+  }, 0));
+  const spendingRows = monthExpenses
+    .map((expense) => ({
+      id: expense.id || `${expense.member}-${expense.category}-${expense.amount}`,
+      member: expense.member,
+      category: expense.category,
+      title: `${expense.member} / ${expense.category}`,
+      value: expense.amount,
+      color: CATEGORY_COLOR[expense.category] || '#808080',
     }))
     .sort(byHighestValue);
-  const owedMatrix = getOwedToUsers(expenses, users);
-  const balanceSlices = users
-    .filter((user) => user && user !== currentUser)
-    .map((user) => {
-      const net = roundMoney((owedMatrix[currentUser]?.[user] || 0) - (owedMatrix[user]?.[currentUser] || 0));
-      return {
-        id: `balance-${user}`,
-        title: user,
-        color: net > 0 ? '#32cd32' : '#e73c7e',
-        value: Math.abs(net),
-        net,
-        amountLabel: formatBalance(net),
-      };
-    })
-    .filter((item) => item.value > 0)
-    .sort(byHighestValue);
-  const balanceTotal = roundMoney(balanceSlices.reduce((sum, item) => sum + item.value, 0));
-  const netBalance = roundMoney(balanceSlices.reduce((sum, item) => sum + item.net, 0));
-  const balanceRingSlices = balanceSlices.map((item) => ({
+  const monthTotal = roundMoney(spendingRows.reduce((sum, item) => sum + item.value, 0));
+  const spendingSlices = spendingRows.map((item) => ({
     ...item,
-    value: fitToExpenses(item.value, balanceTotal),
+    amountLabel: formatMoney(item.value),
   }));
+  const balanceSlices = balance === 0 ? [] : [{
+    id: 'balance',
+    title: currentUser || 'You',
+    value: Math.abs(balance),
+    color: balance > 0 ? '#32cd32' : '#e73c7e',
+    amountLabel: formatBalance(balance),
+  }];
   const shellRef = useRef(null);
   const contentRef = useRef(null);
   const heightRef = useRef(null);
   const layoutKey = [
-    totalBudget,
-    monthlyTotal,
-    paidTotal,
-    netBalance,
-    balanceSlices.map((item) => `${item.id}:${item.net}`).join('|'),
-    items.map((item) => `${item.id}:${item.title}:${item.budget}`).join('|'),
+    monthTotal,
+    balance,
+    currentUser,
+    spendingRows.map((item) => `${item.id}:${item.value}`).join('|'),
   ].join(':');
 
   useEffect(() => {
@@ -332,127 +255,109 @@ const HouseholdDashboard = ({
     return () => shell.removeEventListener('transitionend', handleEnd);
   }, [layoutKey]);
 
-  const budgetNote = !hasHousehold
+  const spendingNote = !hasHousehold
     ? 'Create or join a household to see this chart.'
-    : 'Set category budgets to see this chart.';
-  const shareNote = !hasHousehold
-    ? 'Create or join a household to see your share.'
-    : 'Set category budgets to see your share.';
+    : 'No expenses recorded this month.';
   const balanceNote = !hasHousehold
-    ? 'Create or join a household to track balances.'
-    : 'Invite someone to your household to track balances.';
+    ? 'Create or join a household to see your balance.'
+    : 'No expenses recorded this month.';
 
   return (
     <div className="App">
       <div className="App-body dashboard">
         <div className="dotted-bg" aria-hidden="true" />
         <div className="container" data-aos="zoom-in-up">
-          <section className="household-dashboard-shell" ref={shellRef} aria-label="Household monthly expenses, your monthly share, and balances with other members">
+          <section className="household-dashboard-shell" ref={shellRef} aria-label="Household monthly spending and your balance">
             <div className="household-dashboard flex gap-20" ref={contentRef}>
-        <div className="dashboard-chart flex col">
-          <DonutChart
-            slices={budgetSlices}
-            total={totalBudget}
-            centerAmount={totalBudget}
-            centerLabel="Expenses"
-            heading="Household monthly expenses"
-            label="Household monthly expenses"
-          />
+              <div className="dashboard-chart flex">
+                <DonutChart
+                  slices={spendingSlices}
+                  total={monthTotal}
+                  centerAmount={monthTotal}
+                  centerLabel="Spending"
+                  heading="Household monthly spending"
+                  label="Household spending this month"
+                />
 
-          {totalBudget <= 0 ? (
-            <p className="household-note">{budgetNote}</p>
-          ) : (
-            <ul className="budget-legend">
-              {budgetLegendItems.map((item) => (
-                <li key={item.id}>
-                  <span className="budget-legend-dot" style={{ background: item.color }} />
-                  <span className="budget-legend-title">{item.title}</span>
-                  <span className="budget-legend-amount">
-                    {item.budget ? formatMoney(item.budget) : 'No budget'}
-                  </span>
-                </li>
-              ))}
-              <li className="budget-legend-total">
-                <span className="budget-legend-title">Expenses</span>
-                <span className="budget-legend-amount">{formatMoney(totalBudget)}</span>
-              </li>
-            </ul>
-          )}
-        </div>
+                {monthTotal <= 0 ? (
+                  <p className="household-note">{spendingNote}</p>
+                ) : (
+                  <table className="dashboard-report">
+                    <caption>Household spending</caption>
+                    <colgroup>
+                      <col className="member" />
+                      <col className="category" />
+                      <col className="amount" />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th scope="col">Member</th>
+                        <th scope="col" className="category">Category</th>
+                        <th scope="col">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {spendingRows.map((item) => (
+                        <tr key={item.id}>
+                          <th scope="row">
+                            <span className="budget-legend-dot" style={{ background: item.color }} />
+                            {item.member}
+                          </th>
+                          <td className="category">{item.category}</td>
+                          <td>{formatMoney(item.value)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <th scope="row" colSpan={2}>Total</th>
+                        <td>{formatMoney(monthTotal)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                )}
+              </div>
 
-        <div className="dashboard-chart flex col">
-          <DonutChart
-            slices={monthlySlices}
-            total={ringTotal}
-            centerAmount={monthlyTotal}
-            centerLabel="Share"
-            heading="Your monthly share"
-            label="Your monthly share, filled by expenses recorded this month"
-          />
+              <div className="dashboard-chart flex">
+                <DonutChart
+                  slices={balanceSlices}
+                  total={monthTotal}
+                  centerAmount={balance}
+                  centerDisplay={formatBalance(balance)}
+                  centerLabel="Balance"
+                  heading="Your balance"
+                  label="What you owe or are owed after this month's splits"
+                />
 
-          {!monthlyTotal ? (
-            <p className="household-note">{shareNote}</p>
-          ) : (
-            <ul className="budget-legend">
-              {monthlySlices.map((item) => (
-                <li key={item.id}>
-                  <span className="budget-legend-dot" style={{ background: item.color }} />
-                  <span className="budget-legend-title">{item.title}</span>
-                  <span className="budget-legend-amount">{formatMoney(item.paid)}</span>
-                </li>
-              ))}
-              {remaining > 0 ? (
-                <li>
-                  <span className="budget-legend-dot remaining" />
-                  <span className="budget-legend-title">Remaining</span>
-                  <span className="budget-legend-amount">{formatMoney(remaining)}</span>
-                </li>
-              ) : null}
-              <li className="budget-legend-total">
-                <span className="budget-legend-title">Paid</span>
-                <span className={overShare ? 'budget-legend-amount over-budget' : 'budget-legend-amount'}>
-                  {formatMoney(paidTotal)}
-                </span>
-              </li>
-            </ul>
-          )}
-        </div>
-
-        <div className="dashboard-chart flex col">
-          <DonutChart
-            slices={balanceRingSlices}
-            total={ringTotal > 0 ? ringTotal : balanceTotal}
-            centerAmount={netBalance}
-            centerDisplay={formatBalance(netBalance)}
-            centerLabel="Balances"
-            heading="Balances"
-            label="Net balance with other household members"
-          />
-
-          {users.filter(Boolean).length < 2 ? (
-            <p className="household-note">{balanceNote}</p>
-          ) : balanceTotal <= 0 ? (
-            <p className="household-note">You&apos;re even with everyone right now.</p>
-          ) : (
-            <ul className="budget-legend">
-              {balanceSlices.map((item) => (
-                <li key={item.id}>
-                  <span className="budget-legend-dot" style={{ background: item.color }} />
-                  <span className="budget-legend-title">{item.title}</span>
-                  <span className={`budget-legend-amount ${item.net > 0 ? 'positive' : 'negative'}`}>
-                    {item.amountLabel}
-                  </span>
-                </li>
-              ))}
-              <li className="budget-legend-total">
-                <span className="budget-legend-title">Balances</span>
-                <span className={netBalance > 0 ? 'budget-legend-amount positive' : netBalance < 0 ? 'budget-legend-amount negative' : 'budget-legend-amount'}>
-                  {formatBalance(netBalance)}
-                </span>
-              </li>
-            </ul>
-          )}
-            </div>
+                {monthTotal <= 0 ? (
+                  <p className="household-note">{balanceNote}</p>
+                ) : (
+                  <table className="dashboard-report">
+                    <caption>Your balance</caption>
+                    <colgroup>
+                      <col className="member" />
+                      <col className="amount" />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th scope="col">Member</th>
+                        <th scope="col">Balance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <th scope="row">
+                          <span className="budget-legend-dot" style={{ background: '#23a6d5' }} />
+                          {currentUser || 'You'}
+                        </th>
+                        <td className={balance > 0 ? 'positive' : balance < 0 ? 'negative' : ''}>
+                          {formatBalance(balance)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+              </div>
             </div>
           </section>
         </div>
@@ -477,9 +382,15 @@ export default function Dashboard() {
       })
       .catch((error) => {
         if (ignore) return;
+        const missing = /\(404\)|not found/i.test(error.message || '');
+        if (missing) {
+          setChart(toChartData({}));
+          setStatus('ready');
+          return;
+        }
         const unreachable = !error.message || error.message === 'Failed to fetch';
         setMessage(unreachable
-          ? 'Could not reach the API at http://localhost:3000. Start the backend, then refresh.'
+          ? 'Could not reach the API. Start the backend, then refresh.'
           : error.message);
         setStatus('error');
       });
@@ -499,12 +410,11 @@ export default function Dashboard() {
 
   return (
     <HouseholdDashboard
-      categories={chart.categories}
       expenses={chart.expenses}
-      users={chart.users}
-      currentUser={chart.currentUser}
+      members={chart.members}
       month={chart.month}
       hasHousehold={chart.hasHousehold}
+      currentUser={chart.currentUser}
     />
   );
 }
