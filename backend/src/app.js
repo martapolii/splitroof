@@ -1,7 +1,12 @@
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
+// Starts the Firebase Admin SDK when the API starts
+require("./config/firebase");
 const { notFound, errorHandler } = require("./middleware/error");
+
+const { requireAuth } = require("./middleware/auth");
+
 const householdRoutes = require("./routes/households");
 
 const app = express();
@@ -19,6 +24,12 @@ app.use(express.json());
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
+
+
+app.get("/api/me", requireAuth, (req, res) => {
+  res.json({ uid: req.user.uid });
+});
+
 
 app.use("/api/households", householdRoutes);
 

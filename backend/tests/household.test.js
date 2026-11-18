@@ -163,6 +163,8 @@ jest.mock("../src/config/firebase", () => {
 const app = require("../src/app");
 const db = require("../src/config/firebase");
 
+const CODE_CHARS = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/;
+
 function seed() {
   Object.keys(db.docs).forEach((key) => delete db.docs[key]);
   Object.keys(db.versions).forEach((key) => delete db.versions[key]);
@@ -179,21 +181,109 @@ function seed() {
     memberIds: ["sam"],
     inviteCode: "BBBBBBBB",
   };
-  db.docs["users/alex"] = { currentHouseholdId: "houseA" };
-  db.docs["users/sam"] = { currentHouseholdId: "houseB" };
+  db.docs["users/alex"] = {
+    email: "alex@example.com",
+    username: "Alex",
+    currentHouseholdId: "houseA",
+  };
+  db.docs["users/sam"] = {
+    email: "sam@example.com",
+    username: "Sam",
+    currentHouseholdId: "houseB",
+  };
 }
+
+function authenticate() {
+  mockVerifyIdToken.mockImplementation(async (token) => {
+    if (token === "alex-token") return { uid: "alex" };
+    if (token === "sam-token") return { uid: "sam" };
+    if (token === "pat-token") return { uid: "pat" };
+    const err = new Error("Decoding Firebase ID token failed");
+    err.code = "auth/argument-error";
+    throw err;
+  });
+}
+
+describe("POST /api/households", () => {
+  beforeEach(() => {
+    seed();
+    authenticate();
+  });
+
+  it("makes the creator the first member and the household admin", async () => {
+    const res = await request(app)
+      .post("/api/households")
+      .set("Authorization", "Bearer pat-token")
+      .send({ name: "  Cabin  " });
+
+    expect(res.status).toBe(201);
+    expect(res.body.name).toBe("Cabin");
+    expect(res.body.adminId).toBe("pat");
+    expect(res.body.memberIds).toEqual(["pat"]);
+    expect(res.body.inviteCode).toMatch(CODE_CHARS);
+
+    const stored = db.docs[`households/${res.body.id}`];
+    expect(stored).toEqual({
+      name: "Cabin",
+      adminId: "pat",
+      memberIds: ["pat"],
+      inviteCode: res.body.inviteCode,
+    });
+    expect(db.docs["users/pat"]).toEqual({ currentHouseholdId: res.body.id });
+  });
+
+  it("creates a second household and leaves the first one unchanged", async () => {
+    const firstHousehold = { ...db.docs["households/houseA"], memberIds: ["alex"] };
+
+    const res = await request(app)
+      .post("/api/households")
+      .set("Authorization", "Bearer alex-token")
+      .send({ name: "Apartment C" });
+
+    expect(res.status).toBe(201);
+    expect(res.body.adminId).toBe("alex");
+    expect(res.body.memberIds).toEqual(["alex"]);
+    expect(res.body.id).not.toBe("houseA");
+    expect(db.docs["households/houseA"]).toEqual(firstHousehold);
+    expect(db.docs["users/alex"]).toEqual({
+      email: "alex@example.com",
+      username: "Alex",
+      currentHouseholdId: res.body.id,
+    });
+
+    const previous = await request(app)
+      .get("/api/households/houseA")
+      .set("Authorization", "Bearer alex-token");
+    expect(previous.status).toBe(200);
+
+    const current = await request(app)
+      .get(`/api/households/${res.body.id}`)
+      .set("Authorization", "Bearer alex-token");
+    expect(current.status).toBe(200);
+  });
+
+  it("returns 400 when the name is missing", async () => {
+    const res = await request(app)
+      .post("/api/households")
+      .set("Authorization", "Bearer pat-token")
+      .send({ name: "   " });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "Household name is required" });
+  });
+
+  it("returns 401 when the token is missing", async () => {
+    const res = await request(app).post("/api/households").send({ name: "Cabin" });
+
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: "Authentication token is missing" });
+  });
+});
 
 describe("household membership", () => {
   beforeEach(() => {
     seed();
-    mockVerifyIdToken.mockImplementation(async (token) => {
-      if (token === "alex-token") return { uid: "alex" };
-      if (token === "sam-token") return { uid: "sam" };
-      if (token === "pat-token") return { uid: "pat" };
-      const err = new Error("Decoding Firebase ID token failed");
-      err.code = "auth/argument-error";
-      throw err;
-    });
+    authenticate();
   });
 
   it("refuses a member of another household", async () => {
@@ -231,27 +321,6 @@ describe("household membership", () => {
     expect(read.status).toBe(200);
   });
 
-  it("does not apply the membership check when joining with a code", async () => {
-    const blocked = await request(app)
-      .get("/api/households/houseA")
-      .set("Authorization", "Bearer pat-token");
-    expect(blocked.status).toBe(403);
-
-    const joined = await request(app)
-      .post("/api/households/join")
-      .set("Authorization", "Bearer pat-token")
-      .send({ inviteCode: "AAAAAAAA" });
-
-    expect(joined.status).toBe(200);
-    expect(joined.body.id).toBe("houseA");
-    expect(joined.body.memberIds).toEqual(["alex", "pat"]);
-
-    const read = await request(app)
-      .get("/api/households/houseA")
-      .set("Authorization", "Bearer pat-token");
-    expect(read.status).toBe(200);
-  });
-
   it("lets a member create another household without leaving the first", async () => {
     const created = await request(app)
       .post("/api/households")
@@ -273,6 +342,27 @@ describe("household membership", () => {
       .get(`/api/households/${created.body.id}`)
       .set("Authorization", "Bearer alex-token");
     expect(current.status).toBe(200);
+  });
+
+  it("does not apply the membership check when joining with a code", async () => {
+    const blocked = await request(app)
+      .get("/api/households/houseA")
+      .set("Authorization", "Bearer pat-token");
+    expect(blocked.status).toBe(403);
+
+    const joined = await request(app)
+      .post("/api/households/join")
+      .set("Authorization", "Bearer pat-token")
+      .send({ inviteCode: "AAAAAAAA" });
+
+    expect(joined.status).toBe(200);
+    expect(joined.body.id).toBe("houseA");
+    expect(joined.body.memberIds).toEqual(["alex", "pat"]);
+
+    const read = await request(app)
+      .get("/api/households/houseA")
+      .set("Authorization", "Bearer pat-token");
+    expect(read.status).toBe(200);
   });
 
   it("lets a member join another household and keeps the previous membership", async () => {
@@ -306,6 +396,30 @@ describe("household membership", () => {
     expect(joined.body.memberIds).toEqual(["alex"]);
     expect(db.docs["users/alex"].currentHouseholdId).toBe("houseA");
     expect(db.docs["households/houseB"].memberIds).toEqual(["sam", "alex"]);
+  });
+
+  it("returns 404 for a wrong invite code and does not add the user", async () => {
+    const res = await request(app)
+      .post("/api/households/join")
+      .set("Authorization", "Bearer pat-token")
+      .send({ inviteCode: "ZZZZZZZZ" });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: "Invite code is not valid" });
+    expect(db.docs["households/houseA"].memberIds).toEqual(["alex"]);
+    expect(db.docs["households/houseB"].memberIds).toEqual(["sam"]);
+    expect(db.docs["users/pat"]).toBeUndefined();
+  });
+
+  it("joins when the invite code uses different capitalization", async () => {
+    const joined = await request(app)
+      .post("/api/households/join")
+      .set("Authorization", "Bearer pat-token")
+      .send({ inviteCode: "aaaaaaaa" });
+
+    expect(joined.status).toBe(200);
+    expect(joined.body.id).toBe("houseA");
+    expect(joined.body.memberIds).toEqual(["alex", "pat"]);
   });
 
   it("rejects a join when the household already has 6 members", async () => {

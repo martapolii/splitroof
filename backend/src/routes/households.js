@@ -19,11 +19,14 @@ function inviteCode() {
   return code;
 }
 
-async function setCurrentHousehold(uid, householdId) {
-  await db().collection("users").doc(uid).set(
-    { currentHouseholdId: householdId },
-    { merge: true }
-  );
+async function uniqueInviteCode() {
+  let code = inviteCode();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const taken = await db().collection("households").where("inviteCode", "==", code).limit(1).get();
+    if (taken.empty) return code;
+    code = inviteCode();
+  }
+  return code;
 }
 
 function householdBody(id, data) {
@@ -42,7 +45,7 @@ function httpError(status, message) {
   return error;
 }
 
-// No membership check: belonging to a household does not block creating another.
+// Creating another household does not remove the user from households they already belong to.
 async function createHousehold(req, res, next) {
   try {
     const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
@@ -50,22 +53,18 @@ async function createHousehold(req, res, next) {
       return res.status(400).json({ error: "Household name is required" });
     }
 
-    let code = inviteCode();
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const taken = await db().collection("households").where("inviteCode", "==", code).limit(1).get();
-      if (taken.empty) break;
-      code = inviteCode();
-    }
-
     const ref = db().collection("households").doc();
     const household = {
       name,
       adminId: req.user.uid,
       memberIds: [req.user.uid],
-      inviteCode: code,
+      inviteCode: await uniqueInviteCode(),
     };
     await ref.set(household);
-    await setCurrentHousehold(req.user.uid, ref.id);
+    await db().collection("users").doc(req.user.uid).set(
+      { currentHouseholdId: ref.id },
+      { merge: true }
+    );
     return res.status(201).json(householdBody(ref.id, household));
   } catch (err) {
     return next(err);
@@ -76,7 +75,7 @@ async function createHousehold(req, res, next) {
 // Reads and writes run in one transaction so overlapping joins cannot drop a member.
 async function joinHousehold(req, res, next) {
   try {
-    const inviteCodeValue = typeof req.body?.inviteCode === "string" ? req.body.inviteCode.trim() : "";
+    const inviteCodeValue = typeof req.body?.inviteCode === "string" ? req.body.inviteCode.trim().toUpperCase() : "";
     if (!inviteCodeValue) {
       return res.status(400).json({ error: "Invite code is required" });
     }
