@@ -133,6 +133,7 @@ Use these exact category names. They must match `frontend/src/categories.js`.
 |---|---|---|
 | `email` | string | User's email address, stored in lowercase |
 | `username` | string | Display name shown to roommates |
+| `usernameLower` | string | Lowercase copy of `username`, used to check that usernames are unique ignoring capitalization |
 | `currentHouseholdId` | string or null | Household the person is currently using, or `null` if they have not joined one |
 
 ### Validation Rules
