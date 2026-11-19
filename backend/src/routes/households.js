@@ -4,6 +4,9 @@ const { requireAuth } = require("../middleware/auth");
 const { requireHouseholdMember } = require("../middleware/household");
 
 const router = express.Router();
+// Every household route requires a signed-in user. Putting this here means any
+// route added to this file later (like /current) is protected automatically.
+router.use(requireAuth);
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 function db() {
@@ -119,8 +122,8 @@ function getHousehold(req, res) {
   res.json(householdBody(req.household.id, req.household));
 }
 
-router.post("/", requireAuth, createHousehold);
-router.post("/join", requireAuth, joinHousehold);
-router.get("/:householdId", requireAuth, requireHouseholdMember, getHousehold);
+router.post("/", createHousehold);
+router.post("/join", joinHousehold);
+router.get("/:householdId", requireHouseholdMember, getHousehold);
 
 module.exports = router;

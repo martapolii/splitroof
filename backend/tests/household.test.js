@@ -471,3 +471,12 @@ describe("household membership", () => {
     expect(db.docs["households/houseB"].memberIds).toEqual(["sam"]);
   });
 });
+
+describe("household routes require sign-in", () => {
+  it("returns 401 for GET /api/households/current without a token", async () => {
+    const res = await request(app).get("/api/households/current");
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe("Authentication token is missing");
+  });
+});
