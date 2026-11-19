@@ -2,21 +2,23 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import "./InviteCodeSection.css";
 
-export default function InviteCodeSection({ householdId }) {
-  const [code, setCode] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [working, setWorking] = useState(false);
+export default function InviteCodeSection({ householdId, initialCode = "" }) {
+  const [code, setCode] = useState(initialCode);
+  const [loading, setLoading] = useState(!initialCode);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  // When the page opens, show the existing code so the admin can view it again.
+  // The back end creates the code with the household, so we only read it.
   useEffect(() => {
+    if (!householdId || initialCode) return;
+
     let cancelled = false;
 
     async function loadCode() {
       try {
-        const data = await apiFetch(`/api/households/${householdId}/invite-code`);
-        if (!cancelled) setCode(data.inviteCode || "");
+        const data = await apiFetch(`/api/households/${householdId}`);
+        const found = data.inviteCode ?? data.household?.inviteCode ?? "";
+        if (!cancelled) setCode(found);
       } catch (err) {
         if (!cancelled) setError(err.message);
       } finally {
@@ -28,24 +30,7 @@ export default function InviteCodeSection({ householdId }) {
     return () => {
       cancelled = true;
     };
-  }, [householdId]);
-
-  async function handleGenerate() {
-    setError("");
-    setMessage("");
-    setWorking(true);
-    try {
-      const data = await apiFetch(`/api/households/${householdId}/invite-code`, {
-        method: "POST",
-      });
-      setCode(data.inviteCode);
-      setMessage("Invite code generated.");
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setWorking(false);
-    }
-  }
+  }, [householdId, initialCode]);
 
   async function handleCopy() {
     try {
@@ -69,13 +54,7 @@ export default function InviteCodeSection({ householdId }) {
           <button type="button" onClick={handleCopy}>Copy</button>
         </div>
       ) : (
-        <p>No invite code yet.</p>
-      )}
-
-      {!code && (
-        <button type="button" onClick={handleGenerate} disabled={working}>
-          {working ? "Generating..." : "Generate Code"}
-        </button>
+        <p>No invite code found for this household.</p>
       )}
 
       {message && <p role="status" className="success-text">{message}</p>}
