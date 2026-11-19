@@ -480,3 +480,71 @@ describe("household routes require sign-in", () => {
     expect(res.body.error).toBe("Authentication token is missing");
   });
 });
+
+describe("GET /api/households/:householdId/members and /expenses", () => {
+  beforeEach(() => {
+    seed();
+    authenticate();
+  });
+
+  it("returns the members' uid and username, without email", async () => {
+    db.docs["households/houseA"].memberIds = ["alex", "sam"];
+
+    const res = await request(app)
+      .get("/api/households/houseA/members")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      { uid: "alex", username: "Alex" },
+      { uid: "sam", username: "Sam" },
+    ]);
+  });
+
+  it("refuses the members list to someone outside the household", async () => {
+    const res = await request(app)
+      .get("/api/households/houseA/members")
+      .set("Authorization", "Bearer sam-token");
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 401 for members and expenses without a token", async () => {
+    const members = await request(app).get("/api/households/houseA/members");
+    const expenses = await request(app).get("/api/households/houseA/expenses");
+
+    expect(members.status).toBe(401);
+    expect(expenses.status).toBe(401);
+  });
+
+  it("returns only this household's expenses, newest first", async () => {
+    db.docs["expenses/e1"] = { householdId: "houseA", amountCents: 1000, description: "Old", date: "2026-11-01", payerId: "alex", category: "Groceries" };
+    db.docs["expenses/e2"] = { householdId: "houseA", amountCents: 2500, description: "New", date: "2026-11-15", payerId: "alex", category: "Utilities" };
+    db.docs["expenses/e3"] = { householdId: "houseB", amountCents: 999, description: "Not ours", date: "2026-11-20", payerId: "sam", category: "Other" };
+
+    const res = await request(app)
+      .get("/api/households/houseA/expenses")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.map((e) => e.id)).toEqual(["e2", "e1"]);
+    expect(res.body[0].description).toBe("New");
+  });
+
+  it("returns an empty list when the household has no expenses yet", async () => {
+    const res = await request(app)
+      .get("/api/households/houseA/expenses")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
+  it("refuses the expenses list to someone outside the household", async () => {
+    const res = await request(app)
+      .get("/api/households/houseA/expenses")
+      .set("Authorization", "Bearer sam-token");
+
+    expect(res.status).toBe(403);
+  });
+});

@@ -122,8 +122,50 @@ function getHousehold(req, res) {
   res.json(householdBody(req.household.id, req.household));
 }
 
+// How many expenses the "recent expenses" list returns.
+const RECENT_EXPENSE_LIMIT = 50;
+
+// Returns each member's uid and username so the frontend can fill the payer and
+// split-member pickers. Email is left out on purpose; the form does not need it.
+async function getMembers(req, res, next) {
+  try {
+    const memberIds = req.household.memberIds;
+    const snaps = await Promise.all(
+      memberIds.map((uid) => db().collection("users").doc(uid).get())
+    );
+    const members = snaps.map((snap, index) => ({
+      uid: memberIds[index],
+      username: snap.exists ? snap.data().username ?? null : null,
+    }));
+    return res.json(members);
+  } catch (err) {
+    return next(err);
+  }
+}
+
+// Returns this household's most recent expenses, newest first.
+// We filter by householdId only and sort in code, because asking Firestore to
+// filter and sort on different fields needs a composite index set up in the console.
+async function getExpenses(req, res, next) {
+  try {
+    const snap = await db()
+      .collection("expenses")
+      .where("householdId", "==", req.household.id)
+      .get();
+    const expenses = snap.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
+      .slice(0, RECENT_EXPENSE_LIMIT);
+    return res.json(expenses);
+  } catch (err) {
+    return next(err);
+  }
+}
+
 router.post("/", createHousehold);
 router.post("/join", joinHousehold);
 router.get("/:householdId", requireHouseholdMember, getHousehold);
+router.get("/:householdId/members", requireHouseholdMember, getMembers);
+router.get("/:householdId/expenses", requireHouseholdMember, getExpenses);
 
 module.exports = router;
