@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { auth } from "../firebase";
 import "./LogoutButton.css";
 
-export default function LogoutButton() {
+export default function LogoutButton({ className = "" }) {
   const navigate = useNavigate();
 
   async function handleLogout() {
@@ -22,7 +22,7 @@ export default function LogoutButton() {
   }
 
   return (
-    <button type="button" className="logout-btn" onClick={handleLogout}>
+    <button type="button" className={`logout-btn${className ? ` ${className}` : ""}`} onClick={handleLogout}>
       Log Out
     </button>
   );
