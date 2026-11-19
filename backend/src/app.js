@@ -8,6 +8,8 @@ const { notFound, errorHandler } = require("./middleware/error");
 const { requireAuth } = require("./middleware/auth");
 
 const householdRoutes = require("./routes/households");
+// Routes for saving a new user's profile after sign-up (HM2, #105)
+const authRoutes = require("./routes/auth");
 
 const app = express();
 
@@ -32,6 +34,8 @@ app.get("/api/me", requireAuth, (req, res) => {
 
 
 app.use("/api/households", householdRoutes);
+// POST /api/auth/profile saves the username and email in Firestore (HM2, #105)
+app.use("/api/auth", authRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
