@@ -1,13 +1,124 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import React, { useState, useEffect } from 'react';
+import AOS from 'aos';
+import 'aos/dist/aos.css';
+import { AuthAPI } from '../api.js';
 
-export default function SignUp() {
+const SignUp = () => {
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [retypePassword, setRetypePassword] = useState('');
+  const [message, setMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
+
+  // AOS Animations
+  useEffect(() => {
+    AOS.init();
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setMessage('');
+    setIsLoading(true);
+
+    if(password !== retypePassword) {
+      setMessage("Passwords do not match.");
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const response = await AuthAPI.signUp({
+        username,
+        email,
+        password
+      });
+
+      setMessage(response?.message || 'Sign Up successful!');
+      setUsername('');
+      setEmail('');
+      setPassword('');
+      setRetypePassword('');
+
+      setTimeout(() => {
+        navigate('/login');
+      }, 1000);
+
+    } catch (error) {
+      setMessage(error.message || 'Sign Up failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
-    <main className="page auth-page">
-      <h1>Sign Up</h1>
-      <p className="muted">The sign up form goes here (HM2).</p>
-      <p>
-        Already have an account? <Link to="/login">Sign in</Link>
-      </p>
-    </main>
+    <div className="App">
+      <div className="App-body signup-form">
+        <div className="dotted-bg" aria-hidden="true" />
+        <div className='container container-2' data-aos="zoom-in-up">
+          <div className="form-container">
+            <h2>Sign Up</h2>
+
+            {message && (
+              <p className={`info-box ${message.includes('successful') ? '' : 'error'}`}>
+                {message}
+              </p>
+            )}
+
+            <form onSubmit={handleSubmit}>
+              <div className='form-group'>
+                <input 
+                  type="text" 
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder='Username' 
+                  required 
+                />
+              </div>
+
+              <div className='form-group'>
+                <input 
+                  type="email" 
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder='Email' 
+                  required 
+                />
+              </div>
+
+              <div className='form-group'>
+                <input 
+                  type="password" 
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder='Password' 
+                  required 
+                />
+              </div>
+
+              <div className='form-group'>
+                <input
+                  type="password" 
+                  value={retypePassword}
+                  onChange={(e) => setRetypePassword(e.target.value)}
+                  placeholder='Retype Password' 
+                  required 
+                />
+              </div>
+
+              <button className='frontend-button' type='submit' disabled={isLoading}>
+                {isLoading ? 'Signing Up...' : 'Sign Up'}
+              </button>
+
+              <p>Already have an account? <Link to="/login">Sign in</Link></p>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
   );
-}
+};
+
+export default SignUp;
