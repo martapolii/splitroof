@@ -1,9 +1,9 @@
-// Seans Dashboard Code
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
 import { HouseholdAPI } from '../api.js';
 import './Dashboard.css';
+import Hero from '../components/Hero.jsx';
 
 const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
@@ -267,6 +267,16 @@ const HouseholdDashboard = ({
       <div className="App-body dashboard">
         <div className="dotted-bg" aria-hidden="true" />
         <div className="container" data-aos="zoom-in-up">
+
+          <Hero
+            phrases={['Split the rent', 'Shared bills', 'Fair shares', 'Your dashboard']}
+            eyebrow="Dashboard"
+            fixedLine="Dashboard"
+            label="Dashboard"
+            subtext="Household spending and balances, on one dashboard."
+            sectionLabel="Dashboard"
+          />
+
           <section className="household-dashboard-shell" ref={shellRef} aria-label="Household monthly spending and your balance">
             <div className="household-dashboard flex gap-20" ref={contentRef}>
               <div className="dashboard-chart flex">

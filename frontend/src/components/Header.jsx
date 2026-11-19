@@ -2,6 +2,23 @@ import { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import "./Header.css";
 import LogoutButton from "./LogoutButton";
+import { applyTheme, readTheme, THEMES } from "../theme.js";
+
+const ThemeToggle = ({ theme, onChange }) => (
+  <div className="theme-toggle" role="group" aria-label="Color theme">
+    {THEMES.map((option) => (
+      <button
+        key={option.id}
+        type="button"
+        className={theme === option.id ? "is-on" : ""}
+        aria-pressed={theme === option.id}
+        onClick={() => onChange(option.id)}
+      >
+        {option.label}
+      </button>
+    ))}
+  </div>
+);
 
 // Iteration 1 pages only. Budgets, Settle Up and settlement history come in Iteration 2.
 const links = [
@@ -15,7 +32,9 @@ const links = [
 export default function Header() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [theme, setTheme] = useState(readTheme);
   const { pathname } = useLocation();
+  const chooseTheme = (next) => setTheme(applyTheme(next));
 
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 1);
@@ -48,6 +67,8 @@ export default function Header() {
           ))}
 
           <LogoutButton className="desktop-only" />
+
+          <ThemeToggle theme={theme} onChange={chooseTheme} />
 
           <button
             type="button"

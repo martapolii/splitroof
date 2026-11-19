@@ -188,7 +188,6 @@
 
 @media (max-width: 600px) {
   .household-dashboard {
-    padding: 24px;
     flex-direction: column;
   }
 
