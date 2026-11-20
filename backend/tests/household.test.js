@@ -549,6 +549,242 @@ describe("GET /api/households/:householdId/members and /expenses", () => {
   });
 });
 
+describe("POST /api/households/:householdId/expenses", () => {
+  beforeEach(() => {
+    seed();
+    authenticate();
+    db.docs["households/houseA"].memberIds = ["alex", "sam", "pat"];
+    db.docs["users/pat"] = {
+      email: "pat@example.com",
+      username: "Pat",
+      currentHouseholdId: "houseA",
+    };
+  });
+
+  function expenseKeys() {
+    return Object.keys(db.docs).filter((key) => key.startsWith("expenses/"));
+  }
+
+  it("saves an equal split using the extra-cent rule", async () => {
+    const res = await request(app)
+      .post("/api/households/houseA/expenses")
+      .set("Authorization", "Bearer alex-token")
+      .send({
+        amountCents: 1000,
+        description: "  Groceries  ",
+        date: "2026-11-13",
+        payerId: "alex",
+        category: "Groceries",
+        split: "equal",
+        memberIds: ["alex", "sam", "pat"],
+        shares: [{ userId: "alex", amountCents: 1000 }],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({
+      householdId: "houseA",
+      amountCents: 1000,
+      description: "Groceries",
+      date: "2026-11-13",
+      payerId: "alex",
+      category: "Groceries",
+      split: "equal",
+      shares: [
+        { userId: "alex", amountCents: 334 },
+        { userId: "sam", amountCents: 333 },
+        { userId: "pat", amountCents: 333 },
+      ],
+    });
+
+    const stored = db.docs[`expenses/${res.body.id}`];
+    expect(stored).toEqual({
+      householdId: "houseA",
+      amountCents: 1000,
+      description: "Groceries",
+      date: "2026-11-13",
+      payerId: "alex",
+      category: "Groceries",
+      split: "equal",
+      shares: res.body.shares,
+    });
+  });
+
+  it("gives the first selected member the extra cent when the payer is not in the split", async () => {
+    const res = await request(app)
+      .post("/api/households/houseA/expenses")
+      .set("Authorization", "Bearer alex-token")
+      .send({
+        amountCents: 1001,
+        description: "Dinner",
+        date: "2026-11-13",
+        payerId: "alex",
+        category: "Entertainment",
+        split: "equal",
+        memberIds: ["sam", "pat"],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.shares).toEqual([
+      { userId: "sam", amountCents: 501 },
+      { userId: "pat", amountCents: 500 },
+    ]);
+  });
+
+  it("saves a custom split with the shares that were sent", async () => {
+    const res = await request(app)
+      .post("/api/households/houseA/expenses")
+      .set("Authorization", "Bearer sam-token")
+      .send({
+        amountCents: 1000,
+        description: "Rent",
+        date: "2026-11-01",
+        payerId: "sam",
+        category: "Rent",
+        split: "custom",
+        shares: [
+          { userId: "alex", amountCents: 0 },
+          { memberId: "sam", amountCents: 700 },
+          { userId: "pat", amountCents: 300 },
+        ],
+      });
+
+    expect(res.status).toBe(201);
+    expect(db.docs[`expenses/${res.body.id}`].shares).toEqual([
+      { userId: "alex", amountCents: 0 },
+      { userId: "sam", amountCents: 700 },
+      { userId: "pat", amountCents: 300 },
+    ]);
+  });
+
+  it("rejects an expense when the category is missing and saves nothing", async () => {
+    const res = await request(app)
+      .post("/api/households/houseA/expenses")
+      .set("Authorization", "Bearer alex-token")
+      .send({
+        amountCents: 1000,
+        description: "Groceries",
+        date: "2026-11-13",
+        payerId: "alex",
+        split: "equal",
+        memberIds: ["alex"],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Category is required");
+    expect(expenseKeys()).toEqual([]);
+  });
+
+  it("rejects a category that is not one of the six", async () => {
+    const res = await request(app)
+      .post("/api/households/houseA/expenses")
+      .set("Authorization", "Bearer alex-token")
+      .send({
+        amountCents: 500,
+        description: "Snacks",
+        date: "2026-11-13",
+        payerId: "alex",
+        category: "Food",
+        split: "equal",
+        memberIds: ["alex"],
+      });
+
+    expect(res.status).toBe(400);
+    expect(expenseKeys()).toEqual([]);
+  });
+
+  it("rejects custom shares that do not add up to the total", async () => {
+    const res = await request(app)
+      .post("/api/households/houseA/expenses")
+      .set("Authorization", "Bearer alex-token")
+      .send({
+        amountCents: 1000,
+        description: "Utilities",
+        date: "2026-11-13",
+        payerId: "alex",
+        category: "Utilities",
+        split: "custom",
+        shares: [
+          { userId: "alex", amountCents: 400 },
+          { userId: "sam", amountCents: 400 },
+        ],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Shares must add up to the expense amount");
+    expect(expenseKeys()).toEqual([]);
+  });
+
+  it("rejects a payer or split member from outside the household", async () => {
+    const outsiderPayer = await request(app)
+      .post("/api/households/houseA/expenses")
+      .set("Authorization", "Bearer alex-token")
+      .send({
+        amountCents: 1000,
+        description: "Groceries",
+        date: "2026-11-13",
+        payerId: "outsider",
+        category: "Groceries",
+        split: "equal",
+        memberIds: ["alex"],
+      });
+
+    const outsiderShare = await request(app)
+      .post("/api/households/houseA/expenses")
+      .set("Authorization", "Bearer alex-token")
+      .send({
+        amountCents: 1000,
+        description: "Groceries",
+        date: "2026-11-13",
+        payerId: "alex",
+        category: "Groceries",
+        split: "custom",
+        shares: [{ userId: "outsider", amountCents: 1000 }],
+      });
+
+    expect(outsiderPayer.status).toBe(400);
+    expect(outsiderShare.status).toBe(400);
+    expect(expenseKeys()).toEqual([]);
+  });
+
+  it("refuses the expense to someone who is not in the household", async () => {
+    db.docs["households/houseA"].memberIds = ["alex"];
+
+    const res = await request(app)
+      .post("/api/households/houseA/expenses")
+      .set("Authorization", "Bearer sam-token")
+      .send({
+        amountCents: 1000,
+        description: "Groceries",
+        date: "2026-11-13",
+        payerId: "alex",
+        category: "Groceries",
+        split: "equal",
+        memberIds: ["alex"],
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("You are not a member of this household");
+    expect(expenseKeys()).toEqual([]);
+  });
+
+  it("returns 401 when the token is missing", async () => {
+    const res = await request(app)
+      .post("/api/households/houseA/expenses")
+      .send({
+        amountCents: 1000,
+        description: "Groceries",
+        date: "2026-11-13",
+        payerId: "alex",
+        category: "Groceries",
+        split: "equal",
+        memberIds: ["alex"],
+      });
+
+    expect(res.status).toBe(401);
+    expect(expenseKeys()).toEqual([]);
+  });
+});
+
 describe("GET /api/households/current", () => {
   beforeEach(() => {
     seed();
