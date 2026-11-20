@@ -149,6 +149,19 @@ async function loadCurrentHousehold(req, res, next) {
   }
 }
 
+// "YYYY-MM" for this month in Toronto time. The server runs on UTC, so without
+// the time zone the last evening of the month would already count as next month
+function torontoMonth(now = new Date(Date.now())) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(now);
+  const year = parts.find((part) => part.type === "year").value;
+  const month = parts.find((part) => part.type === "month").value;
+  return `${year}-${month}`;
+}
+
 async function getCurrentHousehold(req, res, next) {
   try {
     const members = await Promise.all(req.household.memberIds.map(async (uid) => {
@@ -158,10 +171,27 @@ async function getCurrentHousehold(req, res, next) {
       const snap = await db().collection("users").doc(uid).get();
       return { uid, username: snap.data()?.username || uid };
     }));
+
+    // dashboard numbers (#93): this month's spending and the user's running balance
+    const snap = await db()
+      .collection("expenses")
+      .where("householdId", "==", req.household.id)
+      .get();
+    const expenses = snap.docs.map((doc) => doc.data());
+    const month = torontoMonth();
+    const spentCents = expenses
+      .filter((expense) => String(expense.date || "").startsWith(`${month}-`))
+      .reduce((sum, expense) => sum + expense.amountCents, 0);
+    const mine = runningBalances(req.household.memberIds, expenses)
+      .find((row) => row.userId === req.user.uid);
+
     return res.json({
       user: res.locals.currentUser,
       household: householdBody(req.household.id, req.household),
       members,
+      month,
+      spentCents,
+      balanceCents: mine ? mine.balanceCents : 0,
     });
   } catch (err) {
     return next(err);

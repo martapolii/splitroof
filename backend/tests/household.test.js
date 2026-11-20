@@ -814,6 +814,9 @@ describe("GET /api/households/current", () => {
         inviteCode: "AAAAAAAA",
       },
       members: [{ uid: "sam", username: "Sam" }, { uid: "alex", username: "Alex" }],
+      month: expect.stringMatching(/^\d{4}-\d{2}$/),
+      spentCents: 0,
+      balanceCents: 0,
     });
   });
 
@@ -1042,5 +1045,153 @@ describe("GET /api/households/:householdId/balances", () => {
 
     expect(missing.status).toBe(401);
     expect(outsider.status).toBe(403);
+  });
+});
+
+describe("GET /api/households/current dashboard numbers (#93)", () => {
+  beforeEach(() => {
+    seed();
+    authenticate();
+    db.docs["households/houseA"].memberIds = ["alex", "sam", "pat"];
+    // Nov 20 2026, 10 AM in Toronto
+    jest.spyOn(Date, "now").mockReturnValue(new Date("2026-11-20T15:00:00Z").getTime());
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  function addExpense(id, data) {
+    db.docs[`expenses/${id}`] = { householdId: "houseA", split: "equal", category: "Other", ...data };
+  }
+
+  it("returns this month's spending and the user's running balance", async () => {
+    addExpense("groceries", {
+      amountCents: 1000,
+      date: "2026-11-03",
+      payerId: "alex",
+      shares: [
+        { userId: "alex", amountCents: 334 },
+        { userId: "sam", amountCents: 333 },
+        { userId: "pat", amountCents: 333 },
+      ],
+    });
+    addExpense("internet", {
+      amountCents: 3000,
+      date: "2026-11-10",
+      payerId: "sam",
+      split: "custom",
+      shares: [
+        { userId: "sam", amountCents: 1000 },
+        { userId: "pat", amountCents: 2000 },
+      ],
+    });
+
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.month).toBe("2026-11");
+    expect(res.body.spentCents).toBe(4000);
+    // alex paid 1000 and owes 334, and is not in the internet bill
+    expect(res.body.balanceCents).toBe(666);
+  });
+
+  it("counts only this month in the spending but keeps older months in the balance", async () => {
+    addExpense("october-rent", {
+      amountCents: 90000,
+      date: "2026-10-01",
+      payerId: "sam",
+      shares: [
+        { userId: "alex", amountCents: 30000 },
+        { userId: "sam", amountCents: 30000 },
+        { userId: "pat", amountCents: 30000 },
+      ],
+    });
+    addExpense("november-snacks", {
+      amountCents: 600,
+      date: "2026-11-15",
+      payerId: "alex",
+      shares: [
+        { userId: "alex", amountCents: 300 },
+        { userId: "pat", amountCents: 300 },
+      ],
+    });
+
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.spentCents).toBe(600);
+    expect(res.body.balanceCents).toBe(-30000 + 600 - 300);
+  });
+
+  it("does not count another household's expenses", async () => {
+    // alex owes in houseB, but the dashboard is for houseA
+    db.docs["expenses/other-house"] = {
+      householdId: "houseB",
+      amountCents: 5000,
+      date: "2026-11-05",
+      payerId: "sam",
+      split: "equal",
+      category: "Other",
+      shares: [{ userId: "sam", amountCents: 2500 }, { userId: "alex", amountCents: 2500 }],
+    };
+
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.spentCents).toBe(0);
+    expect(res.body.balanceCents).toBe(0);
+  });
+
+  it("shows an older balance when nothing was spent this month", async () => {
+    addExpense("october-hydro", {
+      amountCents: 6000,
+      date: "2026-10-20",
+      payerId: "alex",
+      shares: [
+        { userId: "alex", amountCents: 2000 },
+        { userId: "sam", amountCents: 2000 },
+        { userId: "pat", amountCents: 2000 },
+      ],
+    });
+
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.spentCents).toBe(0);
+    expect(res.body.balanceCents).toBe(4000);
+  });
+
+  it("uses Toronto time for the month, so Nov 30 at 10 PM is still November", async () => {
+    // Dec 1 at 3 AM UTC is Nov 30 at 10 PM in Toronto
+    Date.now.mockReturnValue(new Date("2026-12-01T03:00:00Z").getTime());
+    addExpense("late-november", {
+      amountCents: 1500,
+      date: "2026-11-30",
+      payerId: "alex",
+      shares: [{ userId: "alex", amountCents: 1500 }],
+    });
+    addExpense("early-december", {
+      amountCents: 700,
+      date: "2026-12-01",
+      payerId: "alex",
+      shares: [{ userId: "alex", amountCents: 700 }],
+    });
+
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.month).toBe("2026-11");
+    expect(res.body.spentCents).toBe(1500);
   });
 });
