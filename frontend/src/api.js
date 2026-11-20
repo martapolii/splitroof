@@ -1,4 +1,4 @@
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { createUserWithEmailAndPassword, deleteUser, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth } from "./firebase.js";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
@@ -81,6 +81,10 @@ export const AuthAPI = {
           method: "POST",
           body: { username },
         });
+      } catch (error) {
+        // No username saved, so remove the new account. Then they can try again with the same email.
+        await deleteUser(credential.user).catch(() => {});
+        throw error;
       } finally {
         // Sign In starts from a signed-out user, including when the profile save fails.
         await signOut(auth);
