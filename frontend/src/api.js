@@ -1,4 +1,4 @@
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth } from "./firebase.js";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
@@ -57,6 +57,10 @@ function signUpError(error) {
   return error;
 }
 
+export const HouseholdAPI = {
+  current: () => apiFetch("/api/households/current"),
+};
+
 export const AuthAPI = {
   // Create the account with the Firebase Web SDK. Saving the username waits on #105.
   signUp: async ({ email, password }) => {
@@ -66,12 +70,13 @@ export const AuthAPI = {
 
     try {
       const credential = await createUserWithEmailAndPassword(auth, email, password);
-      return {
-        user: {
-          uid: credential.user.uid,
-          email: credential.user.email,
-        },
+      const user = {
+        uid: credential.user.uid,
+        email: credential.user.email,
       };
+      // Firebase signs the new account in. Sign In tests start from a signed-out user.
+      await signOut(auth);
+      return { user };
     } catch (error) {
       throw signUpError(error);
     }
