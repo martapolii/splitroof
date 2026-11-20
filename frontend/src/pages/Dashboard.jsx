@@ -8,7 +8,7 @@ import Hero from '../components/Hero.jsx';
 const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
 const formatMoney = (value) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0);
+  new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(value || 0);
 
 const SIZE = 180;
 const STROKE = 22;
@@ -79,7 +79,7 @@ const toChartData = (data = {}) => {
     members: members.map((member) => member.username || member.name || member.uid).filter(Boolean),
     expenses,
     month,
-    // the backend works these out (#93) so every screen shows the same numbers
+    // dashboard totals come from the backend (#93)
     spent: dollars(data.spentCents),
     balance: dollars(data.balanceCents),
     currentUser: memberName(members, data.user?.uid) || data.user?.username || '',
@@ -184,7 +184,13 @@ const HouseholdDashboard = ({
     }))
     .sort(byHighestValue);
   const monthTotal = roundMoney(spent);
-  const spendingSlices = spendingRows.map((item) => ({
+  // until the report by category and member is in (#141), show the total as one slice
+  const spendingSlices = (spendingRows.length ? spendingRows : [{
+    id: 'month',
+    title: 'This month',
+    value: monthTotal,
+    color: '#23a6d5',
+  }]).map((item) => ({
     ...item,
     amountLabel: formatMoney(item.value),
   }));
@@ -281,6 +287,8 @@ const HouseholdDashboard = ({
 
                 {monthTotal <= 0 ? (
                   <p className="household-note">{spendingNote}</p>
+                ) : spendingRows.length === 0 ? (
+                  <p className="household-note">The report by category and member goes here (HM3).</p>
                 ) : (
                   <table className="dashboard-report">
                     <caption>Household spending</caption>

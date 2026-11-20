@@ -17,8 +17,8 @@ function wholeCents(value) {
 
 // One running balance per person, in cents, from saved expense shares.
 // Positive means the household owes them. Negative means they owe the household.
-// Both balance screens should call this (through GET .../balances) instead of
-// adding up shares themselves. Settlements are not applied here.
+// The balance screens (GET .../balances) and the dashboard (GET /current) both use
+// this instead of adding up shares themselves. Settlements are not applied here.
 function runningBalances(memberIds, expenses) {
   if (!Array.isArray(memberIds)) {
     throw badRequest("Member IDs are required.");

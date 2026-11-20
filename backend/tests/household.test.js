@@ -1129,6 +1129,7 @@ describe("GET /api/households/current dashboard numbers (#93)", () => {
   });
 
   it("does not count another household's expenses", async () => {
+    // alex owes in houseB, but the dashboard is for houseA
     db.docs["expenses/other-house"] = {
       householdId: "houseB",
       amountCents: 5000,
@@ -1136,7 +1137,7 @@ describe("GET /api/households/current dashboard numbers (#93)", () => {
       payerId: "sam",
       split: "equal",
       category: "Other",
-      shares: [{ userId: "sam", amountCents: 5000 }],
+      shares: [{ userId: "sam", amountCents: 2500 }, { userId: "alex", amountCents: 2500 }],
     };
 
     const res = await request(app)
@@ -1146,6 +1147,27 @@ describe("GET /api/households/current dashboard numbers (#93)", () => {
     expect(res.status).toBe(200);
     expect(res.body.spentCents).toBe(0);
     expect(res.body.balanceCents).toBe(0);
+  });
+
+  it("shows an older balance when nothing was spent this month", async () => {
+    addExpense("october-hydro", {
+      amountCents: 6000,
+      date: "2026-10-20",
+      payerId: "alex",
+      shares: [
+        { userId: "alex", amountCents: 2000 },
+        { userId: "sam", amountCents: 2000 },
+        { userId: "pat", amountCents: 2000 },
+      ],
+    });
+
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.spentCents).toBe(0);
+    expect(res.body.balanceCents).toBe(4000);
   });
 
   it("uses Toronto time for the month, so Nov 30 at 10 PM is still November", async () => {
