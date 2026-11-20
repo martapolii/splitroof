@@ -8,14 +8,14 @@ export const THEMES = [
 export const readTheme = () => {
   try {
     const stored = localStorage.getItem(THEME_KEY);
-    return THEMES.some((theme) => theme.id === stored) ? stored : 'color';
+    return THEMES.some((theme) => theme.id === stored) ? stored : 'dark';
   } catch {
-    return 'color';
+    return 'dark';
   }
 };
 
 export const applyTheme = (theme) => {
-  const next = THEMES.some((item) => item.id === theme) ? theme : 'color';
+  const next = THEMES.some((item) => item.id === theme) ? theme : 'dark';
   document.documentElement.dataset.theme = next;
   try {
     localStorage.setItem(THEME_KEY, next);
