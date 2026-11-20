@@ -548,3 +548,88 @@ describe("GET /api/households/:householdId/members and /expenses", () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe("GET /api/households/:householdId/balances", () => {
+  beforeEach(() => {
+    seed();
+    authenticate();
+    db.docs["households/houseA"].memberIds = ["alex", "sam", "pat"];
+  });
+
+  it("returns the running balance from saved shares", async () => {
+    db.docs["expenses/groceries"] = {
+      householdId: "houseA",
+      amountCents: 1000,
+      payerId: "alex",
+      shares: [
+        { userId: "alex", amountCents: 334 },
+        { userId: "sam", amountCents: 333 },
+        { userId: "pat", amountCents: 333 },
+      ],
+    };
+    db.docs["expenses/other-house"] = {
+      householdId: "houseB",
+      amountCents: 5000,
+      payerId: "alex",
+      shares: [{ userId: "alex", amountCents: 5000 }],
+    };
+
+    const res = await request(app)
+      .get("/api/households/houseA/balances")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      { userId: "alex", balanceCents: 666 },
+      { userId: "sam", balanceCents: -333 },
+      { userId: "pat", balanceCents: -333 },
+    ]);
+    expect(res.body.reduce((sum, row) => sum + row.balanceCents, 0)).toBe(0);
+  });
+
+  it("leaves a member out of the expense at zero", async () => {
+    db.docs["expenses/dinner"] = {
+      householdId: "houseA",
+      amountCents: 800,
+      payerId: "alex",
+      shares: [
+        { userId: "alex", amountCents: 400 },
+        { userId: "sam", amountCents: 400 },
+      ],
+    };
+
+    const res = await request(app)
+      .get("/api/households/houseA/balances")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      { userId: "alex", balanceCents: 400 },
+      { userId: "sam", balanceCents: -400 },
+      { userId: "pat", balanceCents: 0 },
+    ]);
+  });
+
+  it("returns zeros when the household has no expenses yet", async () => {
+    const res = await request(app)
+      .get("/api/households/houseA/balances")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      { userId: "alex", balanceCents: 0 },
+      { userId: "sam", balanceCents: 0 },
+      { userId: "pat", balanceCents: 0 },
+    ]);
+  });
+
+  it("returns 401 without a token and 403 for someone outside the household", async () => {
+    const missing = await request(app).get("/api/households/houseA/balances");
+    const outsider = await request(app)
+      .get("/api/households/houseB/balances")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(missing.status).toBe(401);
+    expect(outsider.status).toBe(403);
+  });
+});
