@@ -122,6 +122,50 @@ function getHousehold(req, res) {
   res.json(householdBody(req.household.id, req.household));
 }
 
+async function loadCurrentHousehold(req, res, next) {
+  try {
+    const snap = await db().collection("users").doc(req.user.uid).get();
+    const profile = snap.data() || {};
+    res.locals.currentUser = {
+      uid: req.user.uid,
+      username: profile.username || req.user.uid,
+    };
+
+    if (profile.currentHouseholdId == null) {
+      return res.json({ user: res.locals.currentUser, household: null, members: [] });
+    }
+    if (typeof profile.currentHouseholdId !== "string" ||
+        !profile.currentHouseholdId.trim() || profile.currentHouseholdId.includes("/")) {
+      throw httpError(500, "Stored current household ID is invalid");
+    }
+
+    // The existing membership middleware reads this ID after authentication.
+    req.params.householdId = profile.currentHouseholdId;
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function getCurrentHousehold(req, res, next) {
+  try {
+    const members = await Promise.all(req.household.memberIds.map(async (uid) => {
+      if (uid === req.user.uid) {
+        return res.locals.currentUser;
+      }
+      const snap = await db().collection("users").doc(uid).get();
+      return { uid, username: snap.data()?.username || uid };
+    }));
+    return res.json({
+      user: res.locals.currentUser,
+      household: householdBody(req.household.id, req.household),
+      members,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 // How many expenses the "recent expenses" list returns.
 const RECENT_EXPENSE_LIMIT = 50;
 
@@ -164,6 +208,7 @@ async function getExpenses(req, res, next) {
 
 router.post("/", createHousehold);
 router.post("/join", joinHousehold);
+router.get("/current", loadCurrentHousehold, requireHouseholdMember, getCurrentHousehold);
 router.get("/:householdId", requireHouseholdMember, getHousehold);
 router.get("/:householdId/members", requireHouseholdMember, getMembers);
 router.get("/:householdId/expenses", requireHouseholdMember, getExpenses);

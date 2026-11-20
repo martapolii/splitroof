@@ -548,3 +548,178 @@ describe("GET /api/households/:householdId/members and /expenses", () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe("GET /api/households/current", () => {
+  beforeEach(() => {
+    seed();
+    authenticate();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("returns the current household and member names in the dashboard response shape", async () => {
+    db.docs["households/houseA"].memberIds = ["sam", "alex"];
+    db.docs["households/houseA"].internalNote = "Keep this in Firestore";
+    db.docs["users/alex"].uid = "untrusted-profile-field";
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      user: { uid: "alex", username: "Alex" },
+      household: {
+        id: "houseA",
+        name: "Apartment A",
+        adminId: "alex",
+        memberIds: ["sam", "alex"],
+        inviteCode: "AAAAAAAA",
+      },
+      members: [{ uid: "sam", username: "Sam" }, { uid: "alex", username: "Alex" }],
+    });
+  });
+
+  it("handles /current before the household ID route", async () => {
+    db.docs["households/current"] = {
+      name: "A document literally named current",
+      memberIds: ["alex"],
+    };
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.household.id).toBe("houseA");
+  });
+
+  it("uses the authenticated user's saved selection and does not change either household", async () => {
+    db.docs["households/houseB"].memberIds = ["sam", "alex"];
+    const before = structuredClone(db.docs);
+    const first = await request(app)
+      .get("/api/households/current?uid=sam&householdId=houseB")
+      .set("Authorization", "Bearer alex-token");
+    expect(first.status).toBe(200);
+    expect(first.body.household.id).toBe("houseA");
+    expect(first.body.members).toEqual([{ uid: "alex", username: "Alex" }]);
+    expect(db.docs).toEqual(before);
+
+    db.docs["users/alex"].currentHouseholdId = "houseB";
+    const second = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer alex-token");
+    expect(second.status).toBe(200);
+    expect(second.body.household.id).toBe("houseB");
+    expect(second.body.members.map((member) => member.uid)).toEqual(["sam", "alex"]);
+  });
+
+  it.each([null, undefined])("returns an empty household when currentHouseholdId is %s", async (id) => {
+    db.docs["users/alex"].currentHouseholdId = id;
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ user: { uid: "alex", username: "Alex" }, household: null, members: [] });
+  });
+
+  it("handles a signed-in user whose Firestore profile has not been saved yet", async () => {
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer pat-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ user: { uid: "pat", username: "pat" }, household: null, members: [] });
+    expect(db.docs["users/pat"]).toBeUndefined();
+  });
+
+  it("reads a newly created household even when the creator's profile has only the current ID", async () => {
+    const created = await request(app)
+      .post("/api/households")
+      .set("Authorization", "Bearer pat-token")
+      .send({ name: "Cabin" });
+    expect(created.status).toBe(201);
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer pat-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.household).toEqual(created.body);
+    expect(res.body.user).toEqual({ uid: "pat", username: "pat" });
+    expect(res.body.members).toEqual([{ uid: "pat", username: "pat" }]);
+  });
+
+  it("reads the household selected by joining and keeps members with missing usernames", async () => {
+    const joined = await request(app)
+      .post("/api/households/join")
+      .set("Authorization", "Bearer alex-token")
+      .send({ inviteCode: "BBBBBBBB" });
+    expect(joined.status).toBe(200);
+    delete db.docs["users/sam"];
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.household).toEqual(joined.body);
+    expect(res.body.members).toEqual([{ uid: "sam", username: "sam" }, { uid: "alex", username: "Alex" }]);
+  });
+
+  it("returns 404 when the saved household was deleted", async () => {
+    delete db.docs["households/houseA"];
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: "Household not found" });
+  });
+
+  it("returns 403 before loading other profiles if the user no longer belongs to the saved household", async () => {
+    db.docs["users/alex"].currentHouseholdId = "houseB";
+    const read = jest.spyOn(db, "collection");
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: "You are not a member of this household" });
+    expect(read.mock.calls).toEqual([["users"], ["households"]]);
+  });
+
+  it.each(["", "Bearer invalid-token"])("requires authentication before reading Firestore (%s)", async (header) => {
+    const read = jest.spyOn(db, "collection");
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", header);
+
+    expect(res.status).toBe(401);
+    expect(read).not.toHaveBeenCalled();
+    expect(res.body.error).toEqual(expect.any(String));
+  });
+
+  it("passes a database failure to the existing error handler", async () => {
+    jest.spyOn(db, "collection").mockImplementationOnce(() => {
+      throw new Error("Database unavailable");
+    });
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: "Something went wrong on the server" });
+  });
+
+  it.each(["", 123, "houseA/other/nested"])("rejects an invalid stored household ID (%s)", async (id) => {
+    db.docs["users/alex"].currentHouseholdId = id;
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    const res = await request(app)
+      .get("/api/households/current")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: "Something went wrong on the server" });
+  });
+});
