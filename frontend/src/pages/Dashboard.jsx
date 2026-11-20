@@ -59,7 +59,7 @@ const amountOf = (item) => {
 
 // Each expense only needs an amount, a category, and the member who paid.
 const toChartData = (data = {}) => {
-  const month = currentMonth();
+  const month = data.month || currentMonth();
   const members = Array.isArray(data.members) ? data.members : [];
   const expenses = (data.expenses || []).map((expense) => ({
     id: expense.id,
@@ -79,6 +79,9 @@ const toChartData = (data = {}) => {
     members: members.map((member) => member.username || member.name || member.uid).filter(Boolean),
     expenses,
     month,
+    // the backend works these out (#93) so every screen shows the same numbers
+    spent: dollars(data.spentCents),
+    balance: dollars(data.balanceCents),
     currentUser: memberName(members, data.user?.uid) || data.user?.username || '',
   };
 };
@@ -161,26 +164,15 @@ const DonutChart = ({ slices, total, centerAmount, centerDisplay, centerLabel, h
 
 const HouseholdDashboard = ({
   expenses = [],
-  members = [],
   month = '',
+  spent = 0,
+  balance = 0,
   hasHousehold = false,
   currentUser = '',
 }) => {
   const monthExpenses = expenses.filter((expense) => (
     expense.date && (!month || String(expense.date).startsWith(month)) && expense.amount > 0
   ));
-  const shareOf = (expense, name) => {
-    const listed = (expense.shares || []).find((share) => share.member === name);
-    if (listed) return listed.amount;
-    const custom = expense.split === 'custom';
-    if (!custom && members.length) return roundMoney(expense.amount / members.length);
-    return 0;
-  };
-  const balance = roundMoney(monthExpenses.reduce((sum, expense) => {
-    const mine = shareOf(expense, currentUser);
-    if (expense.member === currentUser) return sum + (expense.amount - mine);
-    return sum - mine;
-  }, 0));
   const spendingRows = monthExpenses
     .map((expense) => ({
       id: expense.id || `${expense.member}-${expense.category}-${expense.amount}`,
@@ -191,7 +183,7 @@ const HouseholdDashboard = ({
       color: CATEGORY_COLOR[expense.category] || '#808080',
     }))
     .sort(byHighestValue);
-  const monthTotal = roundMoney(spendingRows.reduce((sum, item) => sum + item.value, 0));
+  const monthTotal = roundMoney(spent);
   const spendingSlices = spendingRows.map((item) => ({
     ...item,
     amountLabel: formatMoney(item.value),
@@ -258,9 +250,7 @@ const HouseholdDashboard = ({
   const spendingNote = !hasHousehold
     ? 'Create or join a household to see this chart.'
     : 'No expenses recorded this month.';
-  const balanceNote = !hasHousehold
-    ? 'Create or join a household to see your balance.'
-    : 'No expenses recorded this month.';
+  const balanceNote = 'Create or join a household to see your balance.';
 
   return (
     <div className="App">
@@ -331,15 +321,16 @@ const HouseholdDashboard = ({
               <div className="dashboard-chart flex">
                 <DonutChart
                   slices={balanceSlices}
-                  total={monthTotal}
+                  total={Math.max(monthTotal, Math.abs(balance))}
                   centerAmount={balance}
                   centerDisplay={formatBalance(balance)}
                   centerLabel="Balance"
                   heading="Your balance"
-                  label="What you owe or are owed after this month's splits"
+                  label="What you owe or are owed in this household"
                 />
 
-                {monthTotal <= 0 ? (
+                {/* the balance carries over from earlier months, so show it even with no spending this month */}
+                {!hasHousehold ? (
                   <p className="household-note">{balanceNote}</p>
                 ) : (
                   <table className="dashboard-report">
@@ -421,8 +412,9 @@ export default function Dashboard() {
   return (
     <HouseholdDashboard
       expenses={chart.expenses}
-      members={chart.members}
       month={chart.month}
+      spent={chart.spent}
+      balance={chart.balance}
       hasHousehold={chart.hasHousehold}
       currentUser={chart.currentUser}
     />
