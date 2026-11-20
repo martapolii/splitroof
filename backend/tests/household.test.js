@@ -479,6 +479,17 @@ describe("household routes require sign-in", () => {
     expect(res.status).toBe(401);
     expect(res.body.error).toBe("Authentication token is missing");
   });
+
+  it("returns 401 for GET /api/households/:householdId with an invalid token", async () => {
+    mockVerifyIdToken.mockRejectedValueOnce(Object.assign(new Error("Invalid token"), { code: "auth/argument-error" }));
+
+    const res = await request(app)
+      .get("/api/households/houseA")
+      .set("Authorization", "Bearer invalid-token");
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe("Authentication token is invalid");
+  });
 });
 
 describe("GET /api/households/:householdId/members and /expenses", () => {
