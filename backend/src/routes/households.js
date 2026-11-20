@@ -3,6 +3,7 @@ const express = require("express");
 const { requireAuth } = require("../middleware/auth");
 const { requireHouseholdMember } = require("../middleware/household");
 const { splitEqualExpense } = require("../services/splitService");
+const { runningBalances } = require("../services/balanceService");
 
 const router = express.Router();
 // Every household route requires a signed-in user. Putting this here means any
@@ -330,6 +331,21 @@ async function createExpense(req, res, next) {
   }
 }
 
+// Every balance screen reads this. The list is the full household, not the
+// recent-expenses page, so an older share still counts.
+async function getBalances(req, res, next) {
+  try {
+    const snap = await db()
+      .collection("expenses")
+      .where("householdId", "==", req.household.id)
+      .get();
+    const expenses = snap.docs.map((doc) => doc.data());
+    return res.json(runningBalances(req.household.memberIds, expenses));
+  } catch (err) {
+    return next(err);
+  }
+}
+
 router.post("/", createHousehold);
 router.post("/join", joinHousehold);
 router.get("/current", loadCurrentHousehold, requireHouseholdMember, getCurrentHousehold);
@@ -337,5 +353,6 @@ router.get("/:householdId", requireHouseholdMember, getHousehold);
 router.get("/:householdId/members", requireHouseholdMember, getMembers);
 router.get("/:householdId/expenses", requireHouseholdMember, getExpenses);
 router.post("/:householdId/expenses", requireHouseholdMember, createExpense);
+router.get("/:householdId/balances", requireHouseholdMember, getBalances);
 
 module.exports = router;
