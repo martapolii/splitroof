@@ -33,6 +33,8 @@ export default function InviteCodeSection({ householdId, initialCode = "" }) {
   }, [householdId, initialCode]);
 
   async function handleCopy() {
+    setMessage("");
+    setError("");
     try {
       await navigator.clipboard.writeText(code);
       setMessage("Code copied to clipboard!");
