@@ -62,8 +62,8 @@ export const HouseholdAPI = {
 };
 
 export const AuthAPI = {
-  // Create the account with the Firebase Web SDK. Saving the username waits on #105.
-  signUp: async ({ email, password }) => {
+  // Create the account with the Firebase Web SDK, save the username, then sign out.
+  signUp: async ({ email, password, username }) => {
     if (!auth) {
       throw new Error("Firebase config is missing. Copy .env.example to .env and fill in the VITE_FIREBASE_ values.");
     }
@@ -74,8 +74,18 @@ export const AuthAPI = {
         uid: credential.user.uid,
         email: credential.user.email,
       };
-      // Firebase signs the new account in. Sign In tests start from a signed-out user.
-      await signOut(auth);
+
+      try {
+        // The new account is signed in, so this call can send its ID token.
+        await apiFetch("/api/auth/profile", {
+          method: "POST",
+          body: { username },
+        });
+      } finally {
+        // Sign In starts from a signed-out user, including when the profile save fails.
+        await signOut(auth);
+      }
+
       return { user };
     } catch (error) {
       throw signUpError(error);
