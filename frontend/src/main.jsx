@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import "./index.css";
 import App from "./App.jsx";
-import { applyTheme, readTheme } from "./theme.js";
+import { applyTheme, readTheme } from "./utils/theme.js";
 
 applyTheme(readTheme());
 

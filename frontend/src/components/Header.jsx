@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import "./Header.css";
 import LogoutButton from "./LogoutButton";
-import { applyTheme, readTheme, THEMES } from "../theme.js";
+import { applyTheme, readTheme, THEMES } from "../utils/theme.js";
 
 const ThemeToggle = ({ theme, onChange }) => (
   <div className="theme-toggle" role="group" aria-label="Color theme">
