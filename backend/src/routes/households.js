@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const express = require("express");
 const { requireAuth } = require("../middleware/auth");
 const { requireHouseholdMember } = require("../middleware/household");
+const { debtsBetweenMembers } = require("../services/debtService");
 const { splitEqualExpense } = require("../services/splitService");
 const { runningBalances } = require("../services/balanceService");
 const { sharesOwedToUser } = require("../services/owedService");
@@ -362,6 +363,36 @@ async function createExpense(req, res, next) {
   }
 }
 
+// Who owes whom, between any two members (HA6, #78). Built from the saved shares.
+async function getDebts(req, res, next) {
+  try {
+    const snap = await db()
+      .collection("expenses")
+      .where("householdId", "==", req.household.id)
+      .get();
+    const debts = debtsBetweenMembers(snap.docs.map((doc) => doc.data()));
+
+    const usernames = new Map();
+    const ids = new Set(debts.flatMap((debt) => [debt.fromUserId, debt.toUserId]));
+    await Promise.all([...ids].map(async (uid) => {
+      const userSnap = await db().collection("users").doc(uid).get();
+      usernames.set(uid, userSnap.data()?.username || uid);
+    }));
+
+    return res.json({
+      debts: debts.map((debt) => ({
+        fromUserId: debt.fromUserId,
+        fromUsername: usernames.get(debt.fromUserId),
+        toUserId: debt.toUserId,
+        toUsername: usernames.get(debt.toUserId),
+        amountCents: debt.amountCents,
+      })),
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 // Every balance screen reads this. The list is the full household, not the
 // recent-expenses page, so an older share still counts.
 async function getBalances(req, res, next) {
@@ -408,6 +439,7 @@ router.get("/:householdId", requireHouseholdMember, getHousehold);
 router.get("/:householdId/members", requireHouseholdMember, getMembers);
 router.get("/:householdId/expenses", requireHouseholdMember, getExpenses);
 router.post("/:householdId/expenses", requireHouseholdMember, createExpense);
+router.get("/:householdId/debts", requireHouseholdMember, getDebts);
 router.get("/:householdId/balances", requireHouseholdMember, getBalances);
 router.get("/:householdId/owed-to-me", requireHouseholdMember, getOwedToMe);
 
