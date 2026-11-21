@@ -4,6 +4,7 @@ const { requireAuth } = require("../middleware/auth");
 const { requireHouseholdMember } = require("../middleware/household");
 const { splitEqualExpense } = require("../services/splitService");
 const { runningBalances } = require("../services/balanceService");
+const { sharesOwedToUser } = require("../services/owedService");
 
 const router = express.Router();
 // Every household route requires a signed-in user. Putting this here means any
@@ -376,6 +377,30 @@ async function getBalances(req, res, next) {
   }
 }
 
+// Who owes the signed-in user money (BH1, #81). The user comes from the token,
+// never from the request, and only expenses this user paid are counted.
+async function getOwedToMe(req, res, next) {
+  try {
+    const snap = await db()
+      .collection("expenses")
+      .where("householdId", "==", req.household.id)
+      .get();
+    const { owed, totalCents } = sharesOwedToUser(
+      req.user.uid,
+      snap.docs.map((doc) => doc.data())
+    );
+
+    const owedToMe = await Promise.all(owed.map(async (row) => {
+      const userSnap = await db().collection("users").doc(row.userId).get();
+      return { userId: row.userId, username: userSnap.data()?.username || row.userId, amountCents: row.amountCents };
+    }));
+
+    return res.json({ owedToMe, totalCents });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 router.post("/", createHousehold);
 router.post("/join", joinHousehold);
 router.get("/current", loadCurrentHousehold, requireHouseholdMember, getCurrentHousehold);
@@ -384,5 +409,6 @@ router.get("/:householdId/members", requireHouseholdMember, getMembers);
 router.get("/:householdId/expenses", requireHouseholdMember, getExpenses);
 router.post("/:householdId/expenses", requireHouseholdMember, createExpense);
 router.get("/:householdId/balances", requireHouseholdMember, getBalances);
+router.get("/:householdId/owed-to-me", requireHouseholdMember, getOwedToMe);
 
 module.exports = router;
