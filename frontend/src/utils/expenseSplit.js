@@ -1,6 +1,7 @@
-// Money helpers for the expense form. Cents stay integers so the preview matches
-// the shares the API stores. Equal-split leftovers follow the same rule as
-// backend/src/services/splitService.js: the payer gets the extra cent first.
+// Money helpers for the expense form. Amounts are cents because that is what
+// the API stores. An equal split is calculated on the server from the people
+// selected here. Percent mode exists only in this form, so those percents are
+// turned into cent shares before save. Leftover cents go to the payer first.
 
 export function todayDateInput() {
   const now = new Date();
@@ -51,25 +52,6 @@ export function formatCents(cents) {
   return `${negative ? "-" : ""}$${grouped}.${remainder}`;
 }
 
-export function centsToInput(cents) {
-  const safe = Math.max(0, cents);
-  return `${Math.floor(safe / 100)}.${String(safe % 100).padStart(2, "0")}`;
-}
-
-export function splitEqualCents(amountCents, memberIds, payerId) {
-  const base = Math.floor(amountCents / memberIds.length);
-  const shares = memberIds.map((userId) => ({ userId, amountCents: base }));
-  let extra = amountCents % memberIds.length;
-  const payer = shares.find((share) => share.userId === payerId);
-  const priority = payer ? [payer, ...shares.filter((share) => share !== payer)] : shares;
-  for (const share of priority) {
-    if (extra <= 0) break;
-    share.amountCents += 1;
-    extra -= 1;
-  }
-  return shares;
-}
-
 export function evenPercents(memberIds, payerId) {
   if (!memberIds.length) return [];
   const base = Math.floor(100 / memberIds.length);
@@ -87,19 +69,6 @@ export function evenPercents(memberIds, payerId) {
     userId,
     percent: base + (bump.has(userId) ? 1 : 0),
   }));
-}
-
-export function prefillAmounts(amountCents, memberIds, payerId) {
-  if (!memberIds.length) return {};
-  if (!amountCents) {
-    return Object.fromEntries(memberIds.map((id) => [id, ""]));
-  }
-  return Object.fromEntries(
-    splitEqualCents(amountCents, memberIds, payerId).map((share) => [
-      share.userId,
-      centsToInput(share.amountCents),
-    ])
-  );
 }
 
 export function prefillPercents(memberIds, payerId) {

@@ -1,19 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { apiFetch } from "../api.js";
+import { apiFetch, HouseholdAPI } from "../api.js";
 import { auth } from "../firebase.js";
 import { DEFAULT_CATEGORIES } from "../categories.js";
 import {
   dollarsToCents,
   formatCents,
   percentToCents,
-  prefillAmounts,
   prefillPercents,
   readPercent,
   readShareCents,
   sanitizeMoney,
   sanitizePercent,
-  splitEqualCents,
   todayDateInput,
 } from "../utils/expenseSplit.js";
 import "./ExpenseForm.css";
@@ -58,6 +56,7 @@ export default function ExpenseForm() {
   const [amountShares, setAmountShares] = useState({});
   const [percentShares, setPercentShares] = useState({});
   const [formError, setFormError] = useState("");
+  const [showRequired, setShowRequired] = useState(false);
   const [savedMessage, setSavedMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const sharesTouched = useRef(false);
@@ -67,11 +66,11 @@ export default function ExpenseForm() {
 
     async function loadHousehold() {
       try {
-        const household = await apiFetch("/api/households/current");
-        const people = await apiFetch(`/api/households/${household.id}/members`);
+        const current = await HouseholdAPI.current();
         if (cancelled) return;
 
-        const list = Array.isArray(people) ? people : [];
+        const household = current?.household;
+        const list = Array.isArray(current?.members) ? current.members : [];
         if (!household?.id || list.length === 0) {
           setLoadError("You are not in a household");
           setLoading(false);
@@ -98,24 +97,19 @@ export default function ExpenseForm() {
   }, []);
 
   const amountCents = dollarsToCents(amount);
-  const shownAmounts = sharesTouched.current
-    ? amountShares
-    : prefillAmounts(amountCents, selectedIds, payerId);
   const shownPercents = sharesTouched.current
     ? percentShares
     : prefillPercents(selectedIds, payerId);
 
   let splitError = "";
   let runningLabel = "";
-  let equalShares = [];
 
   if (selectedIds.length === 0) {
     splitError = "Choose at least one person to split this with.";
   } else if (splitMode === "equal" && amountCents) {
-    equalShares = splitEqualCents(amountCents, selectedIds, payerId);
     runningLabel = `Split equally. Total ${formatCents(amountCents)}.`;
   } else if (splitMode === "amount" && amountCents) {
-    const parsed = selectedIds.map((id) => readShareCents(shownAmounts[id]));
+    const parsed = selectedIds.map((id) => readShareCents(amountShares[id]));
     if (parsed.some((cents) => cents === null)) {
       splitError = "Enter each share in dollars and cents.";
     } else {
@@ -160,11 +154,7 @@ export default function ExpenseForm() {
   }
 
   function updateAmountShare(uid, value) {
-    const base = sharesTouched.current
-      ? amountShares
-      : prefillAmounts(amountCents, selectedIds, payerId);
-    sharesTouched.current = true;
-    setAmountShares({ ...base, [uid]: sanitizeMoney(value) });
+    setAmountShares((current) => ({ ...current, [uid]: sanitizeMoney(value) }));
     clearStatus();
   }
 
@@ -177,31 +167,25 @@ export default function ExpenseForm() {
     clearStatus();
   }
 
+  const missingAmount = amountCents === null || amountCents < 1;
+  const missingDescription = !description.trim();
+  const missingDate = !date;
+  const missingPayer = !payerId;
+  const missingCategory = !category;
+  const missingMembers = selectedIds.length === 0;
+  const invalid = (missing) => showRequired && missing;
+
   async function handleSubmit(event) {
     event.preventDefault();
-    setFormError("");
     setSavedMessage("");
 
-    if (amountCents === null || amountCents < 1) {
-      setFormError("Enter an amount.");
+    if (missingAmount || missingDescription || missingDate || missingPayer || missingCategory || missingMembers) {
+      setShowRequired(true);
+      setFormError("Fill in the highlighted fields.");
       return;
     }
-    if (!description.trim()) {
-      setFormError("Description is required.");
-      return;
-    }
-    if (!date) {
-      setFormError("Pick a date.");
-      return;
-    }
-    if (!payerId) {
-      setFormError("Pick who paid.");
-      return;
-    }
-    if (!category) {
-      setFormError("Pick a category.");
-      return;
-    }
+
+    setFormError("");
     if (splitError) return;
 
     const body = {
@@ -218,7 +202,7 @@ export default function ExpenseForm() {
     } else if (splitMode === "amount") {
       body.shares = selectedIds.map((uid) => ({
         userId: uid,
-        amountCents: readShareCents(shownAmounts[uid]),
+        amountCents: readShareCents(amountShares[uid]),
       }));
     } else {
       const percents = selectedIds.map((uid) => ({
@@ -240,6 +224,7 @@ export default function ExpenseForm() {
         body,
       });
       setSavedMessage("Saved. This expense is in the household expense list.");
+      setShowRequired(false);
       setAmount("");
       setDescription("");
       sharesTouched.current = false;
@@ -274,7 +259,6 @@ export default function ExpenseForm() {
     );
   }
 
-  const shareByUser = Object.fromEntries(equalShares.map((share) => [share.userId, share.amountCents]));
   const labels = memberLabels(members);
 
   return (
@@ -292,10 +276,11 @@ export default function ExpenseForm() {
 
       <div className="form-group">
         <label htmlFor="expense-amount">Amount</label>
-        <div className="money-input">
+        <div className={`money-input${invalid(missingAmount) ? " is-invalid" : ""}`}>
           <span aria-hidden="true">$</span>
           <input
             id="expense-amount"
+            aria-invalid={invalid(missingAmount)}
             type="text"
             inputMode="decimal"
             value={amount}
@@ -313,6 +298,8 @@ export default function ExpenseForm() {
         <label htmlFor="expense-description">Description</label>
         <input
           id="expense-description"
+          className={invalid(missingDescription) ? "is-invalid" : undefined}
+          aria-invalid={invalid(missingDescription)}
           type="text"
           value={description}
           onChange={(event) => {
@@ -329,6 +316,8 @@ export default function ExpenseForm() {
         <label htmlFor="expense-date">Date</label>
         <input
           id="expense-date"
+          className={invalid(missingDate) ? "is-invalid" : undefined}
+          aria-invalid={invalid(missingDate)}
           type="date"
           value={date}
           onChange={(event) => {
@@ -343,6 +332,8 @@ export default function ExpenseForm() {
         <label htmlFor="expense-payer">Who paid</label>
         <select
           id="expense-payer"
+          className={invalid(missingPayer) ? "is-invalid" : undefined}
+          aria-invalid={invalid(missingPayer)}
           value={payerId}
           onChange={(event) => {
             setPayerId(event.target.value);
@@ -361,6 +352,8 @@ export default function ExpenseForm() {
         <label htmlFor="expense-category">Category</label>
         <select
           id="expense-category"
+          className={invalid(missingCategory) ? "is-invalid" : undefined}
+          aria-invalid={invalid(missingCategory)}
           value={category}
           onChange={(event) => {
             setCategory(event.target.value);
@@ -391,7 +384,7 @@ export default function ExpenseForm() {
         </div>
         <p className="field-hint">{SPLIT_HINTS[splitMode]}</p>
 
-        <fieldset className="split-members">
+        <fieldset className={`split-members${invalid(missingMembers) ? " is-invalid" : ""}`}>
           <legend>Split between</legend>
           {members.map((member, index) => {
             const name = labels[index];
@@ -405,18 +398,16 @@ export default function ExpenseForm() {
                     onChange={() => toggleMember(member.uid)}
                     aria-label={`Include ${name} in the split`}
                   />
-                  <span>{name}</span>
+                  <span className="split-toggle" aria-hidden="true" />
+                  <span className="split-member-name">{name}</span>
                 </label>
-                {included && splitMode === "equal" && amountCents ? (
-                  <span className="share-readout">{formatCents(shareByUser[member.uid] || 0)}</span>
-                ) : null}
                 {included && splitMode === "amount" ? (
                   <div className="share-entry">
                     <input
                       type="text"
                       inputMode="decimal"
                       aria-label={`${name}'s amount`}
-                      value={shownAmounts[member.uid] ?? ""}
+                      value={amountShares[member.uid] ?? ""}
                       onChange={(event) => updateAmountShare(member.uid, event.target.value)}
                     />
                   </div>

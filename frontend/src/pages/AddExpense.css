@@ -1,0 +1,8 @@
+.page .App-body.expense {
+  padding: 0;
+}
+
+.page .App-body.expense .container:not(.container-2) {
+  width: 100%;
+  max-width: none;
+}
