@@ -59,6 +59,7 @@ function signUpError(error) {
 
 export const HouseholdAPI = {
   current: () => apiFetch("/api/households/current"),
+  expenses: (householdId) => apiFetch(`/api/households/${encodeURIComponent(householdId)}/expenses`),
   create: (name) =>
     apiFetch("/api/households", {
       method: "POST",
