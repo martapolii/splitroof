@@ -141,6 +141,28 @@ describe("sharesOwedToUser", () => {
 
     expect(sharesOwedToUser("alex", expenses)).toEqual({ owed: [], totalCents: 0 });
   });
+
+  // alex paid $30 split with sam (sam owes $15), sam paid $20 split with alex (alex owes $10)
+  it("only shows the difference when the user also owes that member", () => {
+    const expenses = [
+      { payerId: "alex", shares: [{ userId: "alex", amountCents: 1500 }, { userId: "sam", amountCents: 1500 }] },
+      { payerId: "sam", shares: [{ userId: "sam", amountCents: 1000 }, { userId: "alex", amountCents: 1000 }] },
+    ];
+
+    expect(sharesOwedToUser("alex", expenses)).toEqual({
+      owed: [{ userId: "sam", amountCents: 500 }],
+      totalCents: 500,
+    });
+  });
+
+  it("leaves a member out when the user owes them more than they owe the user", () => {
+    const expenses = [
+      { payerId: "alex", shares: [{ userId: "sam", amountCents: 1000 }] },
+      { payerId: "sam", shares: [{ userId: "alex", amountCents: 2500 }] },
+    ];
+
+    expect(sharesOwedToUser("alex", expenses)).toEqual({ owed: [], totalCents: 0 });
+  });
 });
 
 describe("GET /api/households/:householdId/owed-to-me", () => {
@@ -183,6 +205,37 @@ describe("GET /api/households/:householdId/owed-to-me", () => {
       owedToMe: [{ userId: "pat", username: "Pat", amountCents: 1500 }],
       totalCents: 1500,
     });
+  });
+
+  it("gives the same amount as /debts when two people paid for each other", async () => {
+    // sam paid $20 split with alex, so alex owes sam $10 back
+    db.docs["expenses/e3"] = {
+      householdId: "houseA",
+      amountCents: 2000,
+      payerId: "sam",
+      shares: [
+        { userId: "sam", amountCents: 1000 },
+        { userId: "alex", amountCents: 1000 },
+      ],
+    };
+
+    const owedRes = await request(app)
+      .get("/api/households/houseA/owed-to-me")
+      .set("Authorization", "Bearer alex-token");
+    const debtsRes = await request(app)
+      .get("/api/households/houseA/debts")
+      .set("Authorization", "Bearer alex-token");
+
+    expect(owedRes.status).toBe(200);
+    expect(owedRes.body).toEqual({
+      owedToMe: [
+        { userId: "pat", username: "Pat", amountCents: 3000 },
+        { userId: "sam", username: "Sam", amountCents: 2000 },
+      ],
+      totalCents: 5000,
+    });
+    const samDebt = debtsRes.body.debts.find((debt) => debt.fromUserId === "sam" && debt.toUserId === "alex");
+    expect(samDebt.amountCents).toBe(2000);
   });
 
   it("returns 401 without a token", async () => {
