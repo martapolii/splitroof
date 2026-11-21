@@ -4,6 +4,7 @@ import 'aos/dist/aos.css';
 import { HouseholdAPI } from '../api.js';
 import './Dashboard.css';
 import Hero from '../components/Hero.jsx';
+import { Link } from 'react-router-dom';
 
 const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
@@ -273,6 +274,14 @@ const HouseholdDashboard = ({
             sectionLabel="Dashboard"
           />
 
+          {/* Link to the Iteration 1 screens from the dashboard (#140) */}
+          <nav className="household-actions flex gap-12" aria-label="Dashboard shortcuts">
+            <Link className="frontend-button" to="/expenses/new">Add Expense</Link>
+            <Link className="frontend-button" to="/balances">Balances</Link>
+            <Link className="frontend-button" to="/owed">Who Owes Me</Link>
+            <Link className="frontend-button" to="/household">Household</Link>
+          </nav>
+
           <section className="household-dashboard-shell" ref={shellRef} aria-label="Household monthly spending and your balance">
             <div className="household-dashboard flex gap-20" ref={contentRef}>
               <div className="dashboard-chart flex">
@@ -386,21 +395,27 @@ export default function Dashboard() {
     HouseholdAPI.current()
       .then((data) => {
         if (ignore) return;
+
+        if (data?.household === null) {
+          setStatus('no-household');
+          return;
+        }
+
+        if (!data?.household?.id) {
+          throw new Error('Could not identify the current household.');
+        }
+
         setChart(toChartData(data));
         setStatus('ready');
       })
       .catch((error) => {
         if (ignore) return;
-        const missing = /\(404\)|not found/i.test(error.message || '');
-        if (missing) {
-          setChart(toChartData({}));
-          setStatus('ready');
-          return;
-        }
-        const unreachable = !error.message || error.message === 'Failed to fetch';
-        setMessage(unreachable
+
+        setMessage(
+          error.message === 'Failed to fetch'
           ? 'Could not reach the API. Start the backend, then refresh.'
-          : error.message);
+          : error.message || 'Could not load the household.'
+        );
         setStatus('error');
       });
 
@@ -415,6 +430,19 @@ export default function Dashboard() {
 
   if (status === 'error') {
     return <p className="info-box error">{message}</p>;
+  }
+
+  // Prompt users without a household to create or join one (#140)
+  if (status === 'no-household') {
+    return (
+      <section className="container" aria-labelledby="household-setup-heading">
+        <h1 id="household-setup-heading">Set up your household</h1>
+        <p>Create a household or join an existing one using an invite code.</p>
+        <Link className="frontend-button" to="/household">
+          Create or Join a Household
+        </Link>
+      </section>
+    );
   }
 
   return (
