@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../api.js";
 
-export default function InviteForm() {
+export default function JoinHouseholdForm() {
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
