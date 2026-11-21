@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { HouseholdAPI } from "../api.js";
 
 export default function CreateHouseholdForm({ onCreated }) {
@@ -50,7 +50,7 @@ export default function CreateHouseholdForm({ onCreated }) {
   };
 
   return (
-    <section className="create-household-section" aria-label="Create household">
+    <section className="form-container create-household-section" aria-label="Create household">
       <h2>Create a Household</h2>
 
       {!created ? (
@@ -75,7 +75,7 @@ export default function CreateHouseholdForm({ onCreated }) {
             </p>
           )}
 
-          <button type="submit" disabled={submitting}>
+          <button className="frontend-button" type="submit" disabled={submitting}>
             {submitting ? "Creating..." : "Create Household"}
           </button>
         </form>
@@ -87,14 +87,10 @@ export default function CreateHouseholdForm({ onCreated }) {
           <p>
             Role: <strong>Household Admin</strong>
           </p>
-          <div className="household-actions flex gap-12">
-            <Link to="/household" className="btn-link">
-              View / Generate Invite Code
-            </Link>
-            <button type="button" onClick={handleGoToDashboard}>
-              Go to Dashboard
-            </button>
-          </div>
+          <p>Your invite code is below.</p>
+          <button className="frontend-button" type="button" onClick={handleGoToDashboard}>
+            Go to Dashboard
+          </button>
         </div>
       )}
     </section>
