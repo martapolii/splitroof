@@ -59,6 +59,11 @@ function signUpError(error) {
 
 export const HouseholdAPI = {
   current: () => apiFetch("/api/households/current"),
+  create: (name) =>
+    apiFetch("/api/households", {
+      method: "POST",
+      body: { name },
+    }),
 };
 
 export const AuthAPI = {

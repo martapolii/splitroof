@@ -1,13 +1,20 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import AOS from "aos";
 import "aos/dist/aos.css";
+import CreateHouseholdForm from "../components/CreateHouseholdForm";
 import JoinHouseholdForm from "../components/JoinHouseholdForm";
 import InviteCodeSection from "../components/InviteCodeSection";
 
 export default function Household() {
-  // TEMP: the id comes from the create response until #93 (current household) is in.
-  const householdId = localStorage.getItem("householdId");
+const [householdId, setHouseholdId] = useState(
+  () => localStorage.getItem("householdId") || ""
+);
 
+const handleCreated = (result) => {
+  if (result?.id) {
+    setHouseholdId(result.id);
+  }
+};
   useEffect(() => {
     AOS.init();
   }, []);
@@ -18,6 +25,7 @@ export default function Household() {
         <div className="dotted-bg" aria-hidden="true" />
         <div className='container container-2' data-aos="zoom-in-up">
           <h1>Household</h1>
+           <CreateHouseholdForm onCreated={handleCreated} />
           <JoinHouseholdForm />
           {householdId && <InviteCodeSection householdId={householdId} />}
         </div>
