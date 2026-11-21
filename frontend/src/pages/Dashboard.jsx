@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
 import { HouseholdAPI } from '../api.js';
@@ -15,13 +15,17 @@ const STROKE = 22;
 const RADIUS = (SIZE - STROKE) / 2;
 const CENTER = SIZE / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+const CATEGORY_DROP_MS = 280;
+
+// Built from the theme colors in index.css. Red and green stay reserved for balances and errors.
+const MEMBER_COLOR = ['#3d6dff', '#00d8ff', '#00e6b8', '#ffe600', '#ff8a00', '#ffb000'];
 
 const CATEGORY_COLOR = {
-  Rent: '#23a6d5',
-  Utilities: '#ee7752',
-  Groceries: '#e73c7e',
-  Household: '#23d5ab',
-  Entertainment: '#d4df38',
+  Rent: '#00c2f0',
+  Utilities: '#ff7a3c',
+  Groceries: '#dfff4a',
+  Household: '#2ee6c4',
+  Entertainment: '#ffc400',
   Other: '#808080',
 };
 
@@ -162,6 +166,72 @@ const DonutChart = ({ slices, total, centerAmount, centerDisplay, centerLabel, h
   );
 };
 
+const prefersReducedMotion = () => (
+  typeof window.matchMedia === 'function'
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+);
+
+// Keeps category rows mounted long enough for the dropdown to open and close.
+const MemberCategories = ({ open, memberId, categories }) => {
+  const [present, setPresent] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const presentRef = useRef(false);
+
+  useLayoutEffect(() => {
+    if (open) {
+      presentRef.current = true;
+      setPresent(true);
+      if (prefersReducedMotion()) {
+        setExpanded(true);
+        return undefined;
+      }
+
+      setExpanded(false);
+      let innerId = 0;
+      const outerId = window.requestAnimationFrame(() => {
+        innerId = window.requestAnimationFrame(() => setExpanded(true));
+      });
+      return () => {
+        window.cancelAnimationFrame(outerId);
+        window.cancelAnimationFrame(innerId);
+      };
+    }
+
+    setExpanded(false);
+    if (!presentRef.current) return undefined;
+    if (prefersReducedMotion()) {
+      presentRef.current = false;
+      setPresent(false);
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      presentRef.current = false;
+      setPresent(false);
+    }, CATEGORY_DROP_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [open]);
+
+  if (!present) return null;
+
+  return categories.map((category) => (
+    <tr
+      className={`category-row${expanded ? ' is-open' : ''}`}
+      key={`${memberId}-${category.category}`}
+    >
+      <th scope="row">
+        <span className="category-reveal">
+          <span className="budget-legend-dot" style={{ background: category.color }} />
+          {category.category}
+        </span>
+      </th>
+      <td>
+        <span className="category-reveal">{formatMoney(category.value)}</span>
+      </td>
+    </tr>
+  ));
+};
+
 const HouseholdDashboard = ({
   expenses = [],
   month = '',
@@ -173,19 +243,53 @@ const HouseholdDashboard = ({
   const monthExpenses = expenses.filter((expense) => (
     expense.date && (!month || String(expense.date).startsWith(month)) && expense.amount > 0
   ));
-  const spendingRows = monthExpenses
-    .map((expense) => ({
-      id: expense.id || `${expense.member}-${expense.category}-${expense.amount}`,
-      member: expense.member,
-      category: expense.category,
-      title: `${expense.member} / ${expense.category}`,
-      value: expense.amount,
-      color: CATEGORY_COLOR[expense.category] || '#808080',
+  const spendingRows = [...monthExpenses.reduce((totals, expense) => {
+    const member = expense.member || 'Other';
+    const category = expense.category || 'Other';
+    const current = totals.get(member) || { value: 0, categories: new Map() };
+    current.value = roundMoney(current.value + expense.amount);
+    current.categories.set(category, roundMoney((current.categories.get(category) || 0) + expense.amount));
+    totals.set(member, current);
+    return totals;
+  }, new Map())]
+    .map(([member, total]) => ({
+      member,
+      value: total.value,
+      categories: [...total.categories.entries()]
+        .map(([category, value]) => ({ category, value }))
+        .sort(byHighestValue),
     }))
-    .sort(byHighestValue);
+    .sort(byHighestValue)
+    .map((item, index) => ({
+      id: item.member,
+      member: item.member,
+      title: item.member,
+      value: item.value,
+      color: MEMBER_COLOR[index % MEMBER_COLOR.length],
+      categories: item.categories.map((category) => ({
+        ...category,
+        color: CATEGORY_COLOR[category.category] || '#808080',
+      })),
+    }));
+  const [openMember, setOpenMember] = useState('');
+  const selectedMember = spendingRows.find((item) => item.id === openMember);
+  const chartRows = selectedMember
+    ? selectedMember.categories.map((category) => ({
+      id: `${selectedMember.id}-${category.category}`,
+      title: category.category,
+      value: category.value,
+      color: category.color,
+    }))
+    : spendingRows.map((item) => ({
+      id: item.id,
+      title: item.member,
+      value: item.value,
+      color: item.color,
+    }));
   const monthTotal = roundMoney(spent);
-  // until the report by category and member is in (#141), show the total as one slice
-  const spendingSlices = (spendingRows.length ? spendingRows : [{
+  const chartTotal = selectedMember ? selectedMember.value : monthTotal;
+  const ringTotal = chartRows.reduce((sum, item) => roundMoney(sum + item.value), 0) || chartTotal;
+  const spendingSlices = (chartRows.length ? chartRows : [{
     id: 'month',
     title: 'This month',
     value: monthTotal,
@@ -208,6 +312,7 @@ const HouseholdDashboard = ({
     monthTotal,
     balance,
     currentUser,
+    openMember,
     spendingRows.map((item) => `${item.id}:${item.value}`).join('|'),
   ].join(':');
 
@@ -278,47 +383,60 @@ const HouseholdDashboard = ({
               <div className="dashboard-chart flex">
                 <DonutChart
                   slices={spendingSlices}
-                  total={monthTotal}
-                  centerAmount={monthTotal}
+                  total={ringTotal}
+                  centerAmount={chartTotal}
                   centerLabel="Spending"
                   heading="Household monthly spending"
                   label="Household spending this month"
                 />
 
-                {monthTotal <= 0 ? (
+                {spendingRows.length === 0 ? (
                   <p className="household-note">{spendingNote}</p>
-                ) : spendingRows.length === 0 ? (
-                  <p className="household-note">The report by category and member goes here (HM3).</p>
                 ) : (
                   <table className="dashboard-report">
                     <caption>Household spending</caption>
                     <colgroup>
                       <col className="member" />
-                      <col className="category" />
                       <col className="amount" />
                     </colgroup>
                     <thead>
                       <tr>
                         <th scope="col">Member</th>
-                        <th scope="col" className="category">Category</th>
                         <th scope="col">Amount</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {spendingRows.map((item) => (
-                        <tr key={item.id}>
-                          <th scope="row">
-                            <span className="budget-legend-dot" style={{ background: item.color }} />
-                            {item.member}
-                          </th>
-                          <td className="category">{item.category}</td>
-                          <td>{formatMoney(item.value)}</td>
-                        </tr>
-                      ))}
+                      {spendingRows.map((item) => {
+                        const open = openMember === item.id;
+                        return (
+                          <Fragment key={item.id}>
+                            <tr>
+                              <th scope="row">
+                                <button
+                                  type="button"
+                                  className="member-toggle"
+                                  aria-expanded={open}
+                                  onClick={() => setOpenMember(open ? '' : item.id)}
+                                >
+                                  <span className="member-chevron" aria-hidden="true" />
+                                  <span className="budget-legend-dot" style={{ background: item.color }} />
+                                  {item.member}
+                                </button>
+                              </th>
+                              <td>{formatMoney(item.value)}</td>
+                            </tr>
+                            <MemberCategories
+                              open={open}
+                              memberId={item.id}
+                              categories={item.categories}
+                            />
+                          </Fragment>
+                        );
+                      })}
                     </tbody>
                     <tfoot>
                       <tr>
-                        <th scope="row" colSpan={2}>Total</th>
+                        <th scope="row">Total</th>
                         <td>{formatMoney(monthTotal)}</td>
                       </tr>
                     </tfoot>
@@ -384,8 +502,15 @@ export default function Dashboard() {
     let ignore = false;
 
     HouseholdAPI.current()
+      .then(async (data) => {
+        if (ignore) return null;
+        const householdId = data?.household?.id;
+        if (!householdId) return data;
+        const expenses = await HouseholdAPI.expenses(householdId);
+        return { ...data, expenses };
+      })
       .then((data) => {
-        if (ignore) return;
+        if (ignore || !data) return;
         setChart(toChartData(data));
         setStatus('ready');
       })
