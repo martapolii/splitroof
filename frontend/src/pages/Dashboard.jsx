@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
 import { HouseholdAPI } from '../api.js';
@@ -17,12 +17,17 @@ const RADIUS = (SIZE - STROKE) / 2;
 const CENTER = SIZE / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
+const CATEGORY_DROP_MS = 280;
+
+// Red and green stay reserved for positive and negative balances.
+const MEMBER_COLOR = ['#3d6dff', '#00d8ff', '#00e6b8', '#ffe600', '#ff8a00', '#ffb000'];
+
 const CATEGORY_COLOR = {
-  Rent: '#23a6d5',
-  Utilities: '#ee7752',
-  Groceries: '#e73c7e',
-  Household: '#23d5ab',
-  Entertainment: '#d4df38',
+  Rent: '#00c2f0',
+  Utilities: '#ff7a3c',
+  Groceries: '#dfff4a',
+  Household: '#2ee6c4',
+  Entertainment: '#ffc400',
   Other: '#808080',
 };
 
@@ -35,50 +40,54 @@ const currentMonth = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 };
 
-const asDate = (value) => {
-  if (!value) return '';
-  if (typeof value === 'string') return value.slice(0, 10);
-  const seconds = value.seconds ?? value._seconds;
-  if (seconds) return new Date(seconds * 1000).toISOString().slice(0, 10);
-  return '';
-};
-
 const memberName = (members, uid) => {
   const member = members.find((item) => item.uid === uid || item.id === uid);
   return member?.username || member?.name || member?.uid || uid || '';
 };
 
-const amountOf = (item) => {
+const reportAmount = (item) => {
   if (!item || typeof item !== 'object') return 0;
-  if (item.amountCents != null) return dollars(item.amountCents);
   if (item.totalCents != null) return dollars(item.totalCents);
-  if (item.spentCents != null) return dollars(item.spentCents);
-  if (item.netCents != null) return dollars(item.netCents);
-  if (item.balanceCents != null) return dollars(item.balanceCents);
+  if (item.amountCents != null) return dollars(item.amountCents);
   return roundMoney(item.amount);
 };
 
-// Each expense only needs an amount, a category, and the member who paid.
+// Each person's share comes from /current byMember (#141), not from who paid.
 const toChartData = (data = {}) => {
   const month = data.month || currentMonth();
   const members = Array.isArray(data.members) ? data.members : [];
-  const expenses = (data.expenses || []).map((expense) => ({
-    id: expense.id,
-    amount: amountOf(expense),
-    category: expense.category || expense.categoryId || 'Other',
-    member: memberName(members, expense.payerId) || expense.payerName || 'Other',
-    date: asDate(expense.date || expense.datePaid),
-    split: expense.split || '',
-    shares: (Array.isArray(expense.shares) ? expense.shares : []).map((share) => ({
-      member: memberName(members, share.userId || share.uid) || share.username || share.name || '',
-      amount: amountOf(share),
-    })).filter((share) => share.member),
-  }));
+  const shares = (Array.isArray(data.byMember) ? data.byMember : [])
+    .map((row) => {
+      const uid = row.uid || row.userId || '';
+      const name = row.username || memberName(members, uid) || uid || 'Member';
+      const categories = (Array.isArray(row.categories) ? row.categories : [])
+        .map((item) => ({
+          category: item?.category || item?.name || 'Other',
+          value: reportAmount(item),
+        }))
+        .filter((item) => item.value > 0)
+        .sort(byHighestValue);
+      return {
+        id: uid || name,
+        member: name,
+        value: reportAmount(row),
+        categories,
+      };
+    })
+    .filter((row) => row.value > 0)
+    .sort(byHighestValue)
+    .map((row, index) => ({
+      ...row,
+      color: MEMBER_COLOR[index % MEMBER_COLOR.length],
+      categories: row.categories.map((category) => ({
+        ...category,
+        color: CATEGORY_COLOR[category.category] || '#808080',
+      })),
+    }));
 
   return {
     hasHousehold: Boolean(data.household),
-    members: members.map((member) => member.username || member.name || member.uid).filter(Boolean),
-    expenses,
+    shares,
     month,
     // dashboard totals come from the backend (#93)
     spent: dollars(data.spentCents),
@@ -163,34 +172,102 @@ const DonutChart = ({ slices, total, centerAmount, centerDisplay, centerLabel, h
   );
 };
 
+const prefersReducedMotion = () => (
+  typeof window.matchMedia === 'function'
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+);
+
+const MemberCategories = ({ open, memberId, categories }) => {
+  const [present, setPresent] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const presentRef = useRef(false);
+
+  useLayoutEffect(() => {
+    if (open) {
+      presentRef.current = true;
+      setPresent(true);
+      if (prefersReducedMotion()) {
+        setExpanded(true);
+        return undefined;
+      }
+
+      setExpanded(false);
+      let innerId = 0;
+      const outerId = window.requestAnimationFrame(() => {
+        innerId = window.requestAnimationFrame(() => setExpanded(true));
+      });
+      return () => {
+        window.cancelAnimationFrame(outerId);
+        window.cancelAnimationFrame(innerId);
+      };
+    }
+
+    setExpanded(false);
+    if (!presentRef.current) return undefined;
+    if (prefersReducedMotion()) {
+      presentRef.current = false;
+      setPresent(false);
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      presentRef.current = false;
+      setPresent(false);
+    }, CATEGORY_DROP_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [open]);
+
+  if (!present) return null;
+
+  return categories.map((category) => (
+    <tr
+      className={`category-row${expanded ? ' is-open' : ''}`}
+      key={`${memberId}-${category.category}`}
+    >
+      <th scope="row">
+        <span className="category-reveal">
+          <span className="budget-legend-dot" style={{ background: category.color }} />
+          {category.category}
+        </span>
+      </th>
+      <td>
+        <span className="category-reveal">{formatMoney(category.value)}</span>
+      </td>
+    </tr>
+  ));
+};
+
 const HouseholdDashboard = ({
-  expenses = [],
-  month = '',
+  shares = [],
   spent = 0,
   balance = 0,
   hasHousehold = false,
   currentUser = '',
 }) => {
-  const monthExpenses = expenses.filter((expense) => (
-    expense.date && (!month || String(expense.date).startsWith(month)) && expense.amount > 0
-  ));
-  const spendingRows = monthExpenses
-    .map((expense) => ({
-      id: expense.id || `${expense.member}-${expense.category}-${expense.amount}`,
-      member: expense.member,
-      category: expense.category,
-      title: `${expense.member} / ${expense.category}`,
-      value: expense.amount,
-      color: CATEGORY_COLOR[expense.category] || '#808080',
+  const [openMember, setOpenMember] = useState('');
+  const spendingRows = shares;
+  const selectedMember = spendingRows.find((item) => item.id === openMember);
+  const chartRows = selectedMember
+    ? (selectedMember.categories.length ? selectedMember.categories : [selectedMember]).map((item) => ({
+      id: item.category ? `${selectedMember.id}-${item.category}` : selectedMember.id,
+      title: item.category || selectedMember.member,
+      value: item.value,
+      color: item.color,
     }))
-    .sort(byHighestValue);
+    : spendingRows.map((item) => ({
+      id: item.id,
+      title: item.member,
+      value: item.value,
+      color: item.color,
+    }));
   const monthTotal = roundMoney(spent);
-  // until the report by category and member is in (#141), show the total as one slice
-  const spendingSlices = (spendingRows.length ? spendingRows : [{
+  const chartTotal = selectedMember ? selectedMember.value : monthTotal;
+  const ringTotal = chartRows.reduce((sum, item) => roundMoney(sum + item.value), 0) || chartTotal;
+  const spendingSlices = (chartRows.length ? chartRows : [{
     id: 'month',
     title: 'This month',
     value: monthTotal,
-    color: '#23a6d5',
+    color: '#00c2f0',
   }]).map((item) => ({
     ...item,
     amountLabel: formatMoney(item.value),
@@ -209,6 +286,7 @@ const HouseholdDashboard = ({
     monthTotal,
     balance,
     currentUser,
+    openMember,
     spendingRows.map((item) => `${item.id}:${item.value}`).join('|'),
   ].join(':');
 
@@ -287,47 +365,62 @@ const HouseholdDashboard = ({
               <div className="dashboard-chart flex">
                 <DonutChart
                   slices={spendingSlices}
-                  total={monthTotal}
-                  centerAmount={monthTotal}
+                  total={ringTotal}
+                  centerAmount={chartTotal}
                   centerLabel="Spending"
                   heading="Household monthly spending"
                   label="Household spending this month"
                 />
 
-                {monthTotal <= 0 ? (
-                  <p className="household-note">{spendingNote}</p>
-                ) : spendingRows.length === 0 ? (
-                  <p className="household-note">The report by category and member goes here (HM3).</p>
+                {spendingRows.length === 0 ? (
+                  <p className="household-note">
+                    {monthTotal <= 0 ? spendingNote : 'The report by category and member goes here (HM3).'}
+                  </p>
                 ) : (
                   <table className="dashboard-report">
                     <caption>Household spending</caption>
                     <colgroup>
                       <col className="member" />
-                      <col className="category" />
                       <col className="amount" />
                     </colgroup>
                     <thead>
                       <tr>
                         <th scope="col">Member</th>
-                        <th scope="col" className="category">Category</th>
                         <th scope="col">Amount</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {spendingRows.map((item) => (
-                        <tr key={item.id}>
-                          <th scope="row">
-                            <span className="budget-legend-dot" style={{ background: item.color }} />
-                            {item.member}
-                          </th>
-                          <td className="category">{item.category}</td>
-                          <td>{formatMoney(item.value)}</td>
-                        </tr>
-                      ))}
+                      {spendingRows.map((item) => {
+                        const open = openMember === item.id;
+                        return (
+                          <Fragment key={item.id}>
+                            <tr>
+                              <th scope="row">
+                                <button
+                                  type="button"
+                                  className="member-toggle"
+                                  aria-expanded={open}
+                                  onClick={() => setOpenMember(open ? '' : item.id)}
+                                >
+                                  <span className="member-chevron" aria-hidden="true" />
+                                  <span className="budget-legend-dot" style={{ background: item.color }} />
+                                  {item.member}
+                                </button>
+                              </th>
+                              <td>{formatMoney(item.value)}</td>
+                            </tr>
+                            <MemberCategories
+                              open={open}
+                              memberId={item.id}
+                              categories={item.categories}
+                            />
+                          </Fragment>
+                        );
+                      })}
                     </tbody>
                     <tfoot>
                       <tr>
-                        <th scope="row" colSpan={2}>Total</th>
+                        <th scope="row">Total</th>
                         <td>{formatMoney(monthTotal)}</td>
                       </tr>
                     </tfoot>
@@ -447,8 +540,7 @@ export default function Dashboard() {
 
   return (
     <HouseholdDashboard
-      expenses={chart.expenses}
-      month={chart.month}
+      shares={chart.shares}
       spent={chart.spent}
       balance={chart.balance}
       hasHousehold={chart.hasHousehold}
