@@ -3,7 +3,7 @@ const express = require("express");
 const { requireAuth } = require("../middleware/auth");
 const { requireHouseholdMember } = require("../middleware/household");
 const { debtsBetweenMembers } = require("../services/debtService");
-const { splitEqualExpense } = require("../services/splitService");
+const { splitEqualExpense, percentageSharesInCents } = require("../services/splitService");
 const { runningBalances } = require("../services/balanceService");
 const { sharesOwedToUser } = require("../services/owedService");
 
@@ -219,13 +219,12 @@ function shareUserId(share) {
   return "";
 }
 
-// Custom shares are calculated before they get here (HM8). This only checks
-// they belong to the household and add up to the expense.
-function customShares(rawShares, memberIds, amountCents) {
+function customShares(rawShares, memberIds, amountCents, payerId) {
   if (!Array.isArray(rawShares) || rawShares.length === 0) {
     throw httpError(400, "Custom split needs a share for each person");
   }
 
+  const byPercent = rawShares.some((share) => share?.percent !== undefined);
   const seen = new Set();
   const shares = rawShares.map((share) => {
     const userId = shareUserId(share);
@@ -237,11 +236,19 @@ function customShares(rawShares, memberIds, amountCents) {
       throw httpError(400, "Each person can only appear once in the split");
     }
     seen.add(userId);
+    if (byPercent) {
+      if (cents !== undefined || !Number.isInteger(share.percent) || share.percent < 0 || share.percent > 100) {
+        throw httpError(400, "Use a whole percent from 0 to 100 for each share, without amountCents");
+      }
+      return { userId, percent: share.percent };
+    }
     if (!Number.isSafeInteger(cents) || cents < 0) {
       throw httpError(400, "Each share must be a whole number of cents");
     }
     return { userId, amountCents: cents };
   });
+
+  if (byPercent) return percentageSharesInCents(amountCents, shares, payerId);
 
   const total = shares.reduce((sum, share) => sum + share.amountCents, 0);
   if (total !== amountCents) {
@@ -299,7 +306,7 @@ function expenseFromBody(body, household) {
 
   const shares = split === "equal"
     ? equalShares(amountCents, body.memberIds, payerId, household.memberIds)
-    : customShares(body.shares, household.memberIds, amountCents);
+    : customShares(body.shares, household.memberIds, amountCents, payerId);
 
   return {
     householdId: household.id,
