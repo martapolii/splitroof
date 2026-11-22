@@ -1,7 +1,5 @@
-// Money helpers for the expense form. Amounts are cents because that is what
-// the API stores. An equal split is calculated on the server from the people
-// selected here. Percent mode exists only in this form, so those percents are
-// turned into cent shares before save. Leftover cents go to the payer first.
+// The form sends custom amounts in cents and percentages as whole numbers.
+// The API calculates the final cent shares for equal and percentage splits.
 
 export function todayDateInput() {
   const now = new Date();
@@ -75,22 +73,4 @@ export function prefillPercents(memberIds, payerId) {
   return Object.fromEntries(
     evenPercents(memberIds, payerId).map((entry) => [entry.userId, String(entry.percent)])
   );
-}
-
-// Turns whole-number percents into cent shares. Leftover cents use the same
-// payer-first order as an equal split, so a 50/50 split of an odd total still adds up.
-export function percentToCents(amountCents, percents, payerId) {
-  const shares = percents.map((entry) => ({
-    userId: entry.userId,
-    amountCents: Math.floor((amountCents * entry.percent) / 100),
-  }));
-  let extra = amountCents - shares.reduce((sum, share) => sum + share.amountCents, 0);
-  const payer = shares.find((share) => share.userId === payerId);
-  const priority = payer ? [payer, ...shares.filter((share) => share !== payer)] : shares;
-  for (const share of priority) {
-    if (extra <= 0) break;
-    share.amountCents += 1;
-    extra -= 1;
-  }
-  return shares;
 }

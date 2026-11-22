@@ -6,7 +6,6 @@ import { DEFAULT_CATEGORIES } from "../categories.js";
 import {
   dollarsToCents,
   formatCents,
-  percentToCents,
   prefillPercents,
   readPercent,
   readShareCents,
@@ -205,16 +204,10 @@ export default function ExpenseForm() {
         amountCents: readShareCents(amountShares[uid]),
       }));
     } else {
-      const percents = selectedIds.map((uid) => ({
+      body.shares = selectedIds.map((uid) => ({
         userId: uid,
         percent: readPercent(shownPercents[uid]),
       }));
-      body.shares = percentToCents(amountCents, percents, payerId);
-      const shareSum = body.shares.reduce((total, share) => total + share.amountCents, 0);
-      if (shareSum !== amountCents) {
-        setFormError("The shares do not add up to the total.");
-        return;
-      }
     }
 
     setSaving(true);

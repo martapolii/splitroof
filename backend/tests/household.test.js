@@ -703,25 +703,95 @@ describe("POST /api/households/:householdId/expenses", () => {
     expect(expenseKeys()).toEqual([]);
   });
 
-  it("rejects custom shares that do not add up to the total", async () => {
+  it("rejects $90 in custom shares on a $100 expense", async () => {
     const res = await request(app)
       .post("/api/households/houseA/expenses")
       .set("Authorization", "Bearer alex-token")
       .send({
-        amountCents: 1000,
+        amountCents: 10000,
         description: "Utilities",
         date: "2026-11-13",
         payerId: "alex",
         category: "Utilities",
         split: "custom",
         shares: [
-          { userId: "alex", amountCents: 400 },
-          { userId: "sam", amountCents: 400 },
+          { userId: "alex", amountCents: 5000 },
+          { userId: "sam", amountCents: 4000 },
         ],
       });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("Shares must add up to the expense amount");
+    expect(expenseKeys()).toEqual([]);
+  });
+
+  function postPercentShares(amountCents, shares) {
+    return request(app)
+      .post("/api/households/houseA/expenses")
+      .set("Authorization", "Bearer alex-token")
+      .send({
+        amountCents,
+        description: "Dinner",
+        date: "2026-11-13",
+        payerId: "alex",
+        category: "Groceries",
+        split: "custom",
+        shares,
+      });
+  }
+
+  it("saves 50%, 30%, 20% of $100 as cent shares", async () => {
+    const res = await postPercentShares(10000, [
+      { userId: "alex", percent: 50 },
+      { memberId: "sam", percent: 30 },
+      { userId: "pat", percent: 20 },
+    ]);
+    const expected = [
+      { userId: "alex", amountCents: 5000 },
+      { userId: "sam", amountCents: 3000 },
+      { userId: "pat", amountCents: 2000 },
+    ];
+    expect(res.status).toBe(201);
+    expect(res.body.shares).toEqual(expected);
+    expect(db.docs[`expenses/${res.body.id}`].shares).toEqual(expected);
+  });
+
+  it.each([10, 25])("rejects 50%%, 30%% and %i%% without saving", async (last) => {
+    const res = await postPercentShares(10000, [
+      { userId: "alex", percent: 50 }, { userId: "sam", percent: 30 },
+      { userId: "pat", percent: last },
+    ]);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Percentages must add up to 100");
+    expect(expenseKeys()).toEqual([]);
+  });
+
+  it.each([
+    ["payer gets the odd cent", 1001, ["sam", "alex"], [50, 50], [500, 501]],
+    ["payer outside the split", 1001, ["sam", "pat"], [50, 50], [501, 500]],
+    ["two leftover cents", 2, ["sam", "pat", "alex"], [33, 33, 34], [1, 0, 1]],
+    ["zero-percent payer", 1, ["alex", "pat", "sam"], [0, 50, 50], [0, 1, 0]],
+    ["exact share for payer", 10, ["alex", "sam", "pat"], [10, 45, 45], [1, 5, 4]],
+    ["largest supported total", Number.MAX_SAFE_INTEGER, ["alex", "sam"], [99, 1],
+      [8917127262193582, 90071992547409]],
+  ])("rounds in cents: %s", async (_label, total, ids, percents, cents) => {
+    const res = await postPercentShares(total, ids.map((userId, i) => ({ userId, percent: percents[i] })));
+    expect(res.status).toBe(201);
+    expect(res.body.shares).toEqual(ids.map((userId, i) => ({ userId, amountCents: cents[i] })));
+  });
+
+  it.each([
+    ["mixed units", [{ userId: "alex", percent: 50 }, { userId: "sam", amountCents: 5000 }]],
+    ["both units on the same share", [{ userId: "alex", percent: 90, amountCents: 10000 }]],
+    ["missing percentage", [{ userId: "alex", percent: 100 }, { userId: "sam" }]],
+    ["fractional values", [{ userId: "alex", percent: 50.5 }, { userId: "sam", percent: 49.5 }]],
+    ["string percentage", [{ userId: "alex", percent: "100" }]],
+    ["out-of-range values", [{ userId: "alex", percent: -1 }, { userId: "sam", percent: 101 }]],
+    ["duplicate member", [{ userId: "sam", percent: 50 }, { memberId: "sam", percent: 50 }]],
+    ["nonmember", [{ userId: "outsider", percent: 100 }]],
+  ])("rejects %s without saving", async (_label, shares) => {
+    const res = await postPercentShares(10000, shares);
+    expect(res.status).toBe(400);
     expect(expenseKeys()).toEqual([]);
   });
 
