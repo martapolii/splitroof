@@ -275,7 +275,7 @@ const HouseholdDashboard = ({
           />
 
           {/* Link to the Iteration 1 screens from the dashboard (#140) */}
-          <nav className="household-actions flex gap-12" aria-label="Dashboard shortcuts">
+          <nav className="dashboard-shortcuts flex gap-20" aria-label="Dashboard shortcuts">
             <Link className="frontend-button" to="/expenses/new">Add Expense</Link>
             <Link className="frontend-button" to="/balances">Balances</Link>
             <Link className="frontend-button" to="/owed">Who Owes Me</Link>

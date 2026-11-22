@@ -209,3 +209,7 @@
     transition: none;
   }
 }
+
+.dashboard-shortcuts {
+  margin-bottom: 20px;
+}
