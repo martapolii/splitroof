@@ -40,4 +40,31 @@ function splitEqualExpense(amountCents, memberIds, payerId) {
   return shares;
 }
 
-module.exports = { splitEqualExpense };
+function percentageSharesInCents(amountCents, shares, payerId) {
+  const totalPercent = shares.reduce((sum, share) => sum + share.percent, 0);
+  if (totalPercent !== 100) {
+    throw badRequest("Percentages must add up to 100");
+  }
+
+  const needsRounding = [];
+  let leftover = amountCents;
+  const result = shares.map(({ userId, percent }) => {
+    // Use an exact product even for large amounts near Number.MAX_SAFE_INTEGER.
+    const product = BigInt(amountCents) * BigInt(percent);
+    const share = { userId, amountCents: Number(product / 100n) };
+    leftover -= share.amountCents;
+    if (product % 100n !== 0n) {
+      if (userId === payerId) needsRounding.unshift(share);
+      else needsRounding.push(share);
+    }
+    return share;
+  });
+
+  // Give fractional shares one cent each, payer first, then in selection order.
+  for (const share of needsRounding.slice(0, leftover)) {
+    share.amountCents += 1;
+  }
+  return result;
+}
+
+module.exports = { splitEqualExpense, percentageSharesInCents };

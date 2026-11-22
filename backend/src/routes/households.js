@@ -2,8 +2,10 @@ const crypto = require("crypto");
 const express = require("express");
 const { requireAuth } = require("../middleware/auth");
 const { requireHouseholdMember } = require("../middleware/household");
-const { splitEqualExpense } = require("../services/splitService");
+const { debtsBetweenMembers } = require("../services/debtService");
+const { splitEqualExpense, percentageSharesInCents } = require("../services/splitService");
 const { runningBalances } = require("../services/balanceService");
+const { sharesOwedToUser } = require("../services/owedService");
 
 const router = express.Router();
 // Every household route requires a signed-in user. Putting this here means any
@@ -217,13 +219,12 @@ function shareUserId(share) {
   return "";
 }
 
-// Custom shares are calculated before they get here (HM8). This only checks
-// they belong to the household and add up to the expense.
-function customShares(rawShares, memberIds, amountCents) {
+function customShares(rawShares, memberIds, amountCents, payerId) {
   if (!Array.isArray(rawShares) || rawShares.length === 0) {
     throw httpError(400, "Custom split needs a share for each person");
   }
 
+  const byPercent = rawShares.some((share) => share?.percent !== undefined);
   const seen = new Set();
   const shares = rawShares.map((share) => {
     const userId = shareUserId(share);
@@ -235,11 +236,19 @@ function customShares(rawShares, memberIds, amountCents) {
       throw httpError(400, "Each person can only appear once in the split");
     }
     seen.add(userId);
+    if (byPercent) {
+      if (cents !== undefined || !Number.isInteger(share.percent) || share.percent < 0 || share.percent > 100) {
+        throw httpError(400, "Use a whole percent from 0 to 100 for each share, without amountCents");
+      }
+      return { userId, percent: share.percent };
+    }
     if (!Number.isSafeInteger(cents) || cents < 0) {
       throw httpError(400, "Each share must be a whole number of cents");
     }
     return { userId, amountCents: cents };
   });
+
+  if (byPercent) return percentageSharesInCents(amountCents, shares, payerId);
 
   const total = shares.reduce((sum, share) => sum + share.amountCents, 0);
   if (total !== amountCents) {
@@ -297,7 +306,7 @@ function expenseFromBody(body, household) {
 
   const shares = split === "equal"
     ? equalShares(amountCents, body.memberIds, payerId, household.memberIds)
-    : customShares(body.shares, household.memberIds, amountCents);
+    : customShares(body.shares, household.memberIds, amountCents, payerId);
 
   return {
     householdId: household.id,
@@ -361,6 +370,36 @@ async function createExpense(req, res, next) {
   }
 }
 
+// Who owes whom, between any two members (HA6, #78). Built from the saved shares.
+async function getDebts(req, res, next) {
+  try {
+    const snap = await db()
+      .collection("expenses")
+      .where("householdId", "==", req.household.id)
+      .get();
+    const debts = debtsBetweenMembers(snap.docs.map((doc) => doc.data()));
+
+    const usernames = new Map();
+    const ids = new Set(debts.flatMap((debt) => [debt.fromUserId, debt.toUserId]));
+    await Promise.all([...ids].map(async (uid) => {
+      const userSnap = await db().collection("users").doc(uid).get();
+      usernames.set(uid, userSnap.data()?.username || uid);
+    }));
+
+    return res.json({
+      debts: debts.map((debt) => ({
+        fromUserId: debt.fromUserId,
+        fromUsername: usernames.get(debt.fromUserId),
+        toUserId: debt.toUserId,
+        toUsername: usernames.get(debt.toUserId),
+        amountCents: debt.amountCents,
+      })),
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 // Every balance screen reads this. The list is the full household, not the
 // recent-expenses page, so an older share still counts.
 async function getBalances(req, res, next) {
@@ -376,6 +415,30 @@ async function getBalances(req, res, next) {
   }
 }
 
+// Who owes the signed-in user money (BH1, #81). The user comes from the token,
+// never from the request, and only expenses this user paid are counted.
+async function getOwedToMe(req, res, next) {
+  try {
+    const snap = await db()
+      .collection("expenses")
+      .where("householdId", "==", req.household.id)
+      .get();
+    const { owed, totalCents } = sharesOwedToUser(
+      req.user.uid,
+      snap.docs.map((doc) => doc.data())
+    );
+
+    const owedToMe = await Promise.all(owed.map(async (row) => {
+      const userSnap = await db().collection("users").doc(row.userId).get();
+      return { userId: row.userId, username: userSnap.data()?.username || row.userId, amountCents: row.amountCents };
+    }));
+
+    return res.json({ owedToMe, totalCents });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 router.post("/", createHousehold);
 router.post("/join", joinHousehold);
 router.get("/current", loadCurrentHousehold, requireHouseholdMember, getCurrentHousehold);
@@ -383,6 +446,8 @@ router.get("/:householdId", requireHouseholdMember, getHousehold);
 router.get("/:householdId/members", requireHouseholdMember, getMembers);
 router.get("/:householdId/expenses", requireHouseholdMember, getExpenses);
 router.post("/:householdId/expenses", requireHouseholdMember, createExpense);
+router.get("/:householdId/debts", requireHouseholdMember, getDebts);
 router.get("/:householdId/balances", requireHouseholdMember, getBalances);
+router.get("/:householdId/owed-to-me", requireHouseholdMember, getOwedToMe);
 
 module.exports = router;

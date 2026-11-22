@@ -1,9 +1,10 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
 import { HouseholdAPI } from '../api.js';
 import './Dashboard.css';
 import Hero from '../components/Hero.jsx';
+import { Link } from 'react-router-dom';
 
 const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
@@ -15,17 +16,13 @@ const STROKE = 22;
 const RADIUS = (SIZE - STROKE) / 2;
 const CENTER = SIZE / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-const CATEGORY_DROP_MS = 280;
-
-// Built from the theme colors in index.css. Red and green stay reserved for balances and errors.
-const MEMBER_COLOR = ['#3d6dff', '#00d8ff', '#00e6b8', '#ffe600', '#ff8a00', '#ffb000'];
 
 const CATEGORY_COLOR = {
-  Rent: '#00c2f0',
-  Utilities: '#ff7a3c',
-  Groceries: '#dfff4a',
-  Household: '#2ee6c4',
-  Entertainment: '#ffc400',
+  Rent: '#23a6d5',
+  Utilities: '#ee7752',
+  Groceries: '#e73c7e',
+  Household: '#23d5ab',
+  Entertainment: '#d4df38',
   Other: '#808080',
 };
 
@@ -166,72 +163,6 @@ const DonutChart = ({ slices, total, centerAmount, centerDisplay, centerLabel, h
   );
 };
 
-const prefersReducedMotion = () => (
-  typeof window.matchMedia === 'function'
-  && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-);
-
-// Keeps category rows mounted long enough for the dropdown to open and close.
-const MemberCategories = ({ open, memberId, categories }) => {
-  const [present, setPresent] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const presentRef = useRef(false);
-
-  useLayoutEffect(() => {
-    if (open) {
-      presentRef.current = true;
-      setPresent(true);
-      if (prefersReducedMotion()) {
-        setExpanded(true);
-        return undefined;
-      }
-
-      setExpanded(false);
-      let innerId = 0;
-      const outerId = window.requestAnimationFrame(() => {
-        innerId = window.requestAnimationFrame(() => setExpanded(true));
-      });
-      return () => {
-        window.cancelAnimationFrame(outerId);
-        window.cancelAnimationFrame(innerId);
-      };
-    }
-
-    setExpanded(false);
-    if (!presentRef.current) return undefined;
-    if (prefersReducedMotion()) {
-      presentRef.current = false;
-      setPresent(false);
-      return undefined;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      presentRef.current = false;
-      setPresent(false);
-    }, CATEGORY_DROP_MS);
-    return () => window.clearTimeout(timeoutId);
-  }, [open]);
-
-  if (!present) return null;
-
-  return categories.map((category) => (
-    <tr
-      className={`category-row${expanded ? ' is-open' : ''}`}
-      key={`${memberId}-${category.category}`}
-    >
-      <th scope="row">
-        <span className="category-reveal">
-          <span className="budget-legend-dot" style={{ background: category.color }} />
-          {category.category}
-        </span>
-      </th>
-      <td>
-        <span className="category-reveal">{formatMoney(category.value)}</span>
-      </td>
-    </tr>
-  ));
-};
-
 const HouseholdDashboard = ({
   expenses = [],
   month = '',
@@ -243,53 +174,19 @@ const HouseholdDashboard = ({
   const monthExpenses = expenses.filter((expense) => (
     expense.date && (!month || String(expense.date).startsWith(month)) && expense.amount > 0
   ));
-  const spendingRows = [...monthExpenses.reduce((totals, expense) => {
-    const member = expense.member || 'Other';
-    const category = expense.category || 'Other';
-    const current = totals.get(member) || { value: 0, categories: new Map() };
-    current.value = roundMoney(current.value + expense.amount);
-    current.categories.set(category, roundMoney((current.categories.get(category) || 0) + expense.amount));
-    totals.set(member, current);
-    return totals;
-  }, new Map())]
-    .map(([member, total]) => ({
-      member,
-      value: total.value,
-      categories: [...total.categories.entries()]
-        .map(([category, value]) => ({ category, value }))
-        .sort(byHighestValue),
+  const spendingRows = monthExpenses
+    .map((expense) => ({
+      id: expense.id || `${expense.member}-${expense.category}-${expense.amount}`,
+      member: expense.member,
+      category: expense.category,
+      title: `${expense.member} / ${expense.category}`,
+      value: expense.amount,
+      color: CATEGORY_COLOR[expense.category] || '#808080',
     }))
-    .sort(byHighestValue)
-    .map((item, index) => ({
-      id: item.member,
-      member: item.member,
-      title: item.member,
-      value: item.value,
-      color: MEMBER_COLOR[index % MEMBER_COLOR.length],
-      categories: item.categories.map((category) => ({
-        ...category,
-        color: CATEGORY_COLOR[category.category] || '#808080',
-      })),
-    }));
-  const [openMember, setOpenMember] = useState('');
-  const selectedMember = spendingRows.find((item) => item.id === openMember);
-  const chartRows = selectedMember
-    ? selectedMember.categories.map((category) => ({
-      id: `${selectedMember.id}-${category.category}`,
-      title: category.category,
-      value: category.value,
-      color: category.color,
-    }))
-    : spendingRows.map((item) => ({
-      id: item.id,
-      title: item.member,
-      value: item.value,
-      color: item.color,
-    }));
+    .sort(byHighestValue);
   const monthTotal = roundMoney(spent);
-  const chartTotal = selectedMember ? selectedMember.value : monthTotal;
-  const ringTotal = chartRows.reduce((sum, item) => roundMoney(sum + item.value), 0) || chartTotal;
-  const spendingSlices = (chartRows.length ? chartRows : [{
+  // until the report by category and member is in (#141), show the total as one slice
+  const spendingSlices = (spendingRows.length ? spendingRows : [{
     id: 'month',
     title: 'This month',
     value: monthTotal,
@@ -312,7 +209,6 @@ const HouseholdDashboard = ({
     monthTotal,
     balance,
     currentUser,
-    openMember,
     spendingRows.map((item) => `${item.id}:${item.value}`).join('|'),
   ].join(':');
 
@@ -378,65 +274,60 @@ const HouseholdDashboard = ({
             sectionLabel="Dashboard"
           />
 
+          {/* Link to the Iteration 1 screens from the dashboard (#140) */}
+          <nav className="household-actions flex gap-12" aria-label="Dashboard shortcuts">
+            <Link className="frontend-button" to="/expenses/new">Add Expense</Link>
+            <Link className="frontend-button" to="/balances">Balances</Link>
+            <Link className="frontend-button" to="/owed">Who Owes Me</Link>
+            <Link className="frontend-button" to="/household">Household</Link>
+          </nav>
+
           <section className="household-dashboard-shell" ref={shellRef} aria-label="Household monthly spending and your balance">
             <div className="household-dashboard flex gap-20" ref={contentRef}>
               <div className="dashboard-chart flex">
                 <DonutChart
                   slices={spendingSlices}
-                  total={ringTotal}
-                  centerAmount={chartTotal}
+                  total={monthTotal}
+                  centerAmount={monthTotal}
                   centerLabel="Spending"
                   heading="Household monthly spending"
                   label="Household spending this month"
                 />
 
-                {spendingRows.length === 0 ? (
+                {monthTotal <= 0 ? (
                   <p className="household-note">{spendingNote}</p>
+                ) : spendingRows.length === 0 ? (
+                  <p className="household-note">The report by category and member goes here (HM3).</p>
                 ) : (
                   <table className="dashboard-report">
                     <caption>Household spending</caption>
                     <colgroup>
                       <col className="member" />
+                      <col className="category" />
                       <col className="amount" />
                     </colgroup>
                     <thead>
                       <tr>
                         <th scope="col">Member</th>
+                        <th scope="col" className="category">Category</th>
                         <th scope="col">Amount</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {spendingRows.map((item) => {
-                        const open = openMember === item.id;
-                        return (
-                          <Fragment key={item.id}>
-                            <tr>
-                              <th scope="row">
-                                <button
-                                  type="button"
-                                  className="member-toggle"
-                                  aria-expanded={open}
-                                  onClick={() => setOpenMember(open ? '' : item.id)}
-                                >
-                                  <span className="member-chevron" aria-hidden="true" />
-                                  <span className="budget-legend-dot" style={{ background: item.color }} />
-                                  {item.member}
-                                </button>
-                              </th>
-                              <td>{formatMoney(item.value)}</td>
-                            </tr>
-                            <MemberCategories
-                              open={open}
-                              memberId={item.id}
-                              categories={item.categories}
-                            />
-                          </Fragment>
-                        );
-                      })}
+                      {spendingRows.map((item) => (
+                        <tr key={item.id}>
+                          <th scope="row">
+                            <span className="budget-legend-dot" style={{ background: item.color }} />
+                            {item.member}
+                          </th>
+                          <td className="category">{item.category}</td>
+                          <td>{formatMoney(item.value)}</td>
+                        </tr>
+                      ))}
                     </tbody>
                     <tfoot>
                       <tr>
-                        <th scope="row">Total</th>
+                        <th scope="row" colSpan={2}>Total</th>
                         <td>{formatMoney(monthTotal)}</td>
                       </tr>
                     </tfoot>
@@ -502,30 +393,29 @@ export default function Dashboard() {
     let ignore = false;
 
     HouseholdAPI.current()
-      .then(async (data) => {
-        if (ignore) return null;
-        const householdId = data?.household?.id;
-        if (!householdId) return data;
-        const expenses = await HouseholdAPI.expenses(householdId);
-        return { ...data, expenses };
-      })
       .then((data) => {
-        if (ignore || !data) return;
+        if (ignore) return;
+
+        if (data?.household === null) {
+          setStatus('no-household');
+          return;
+        }
+
+        if (!data?.household?.id) {
+          throw new Error('Could not identify the current household.');
+        }
+
         setChart(toChartData(data));
         setStatus('ready');
       })
       .catch((error) => {
         if (ignore) return;
-        const missing = /\(404\)|not found/i.test(error.message || '');
-        if (missing) {
-          setChart(toChartData({}));
-          setStatus('ready');
-          return;
-        }
-        const unreachable = !error.message || error.message === 'Failed to fetch';
-        setMessage(unreachable
+
+        setMessage(
+          error.message === 'Failed to fetch'
           ? 'Could not reach the API. Start the backend, then refresh.'
-          : error.message);
+          : error.message || 'Could not load the household.'
+        );
         setStatus('error');
       });
 
@@ -540,6 +430,19 @@ export default function Dashboard() {
 
   if (status === 'error') {
     return <p className="info-box error">{message}</p>;
+  }
+
+  // Prompt users without a household to create or join one (#140)
+  if (status === 'no-household') {
+    return (
+      <section className="container" aria-labelledby="household-setup-heading">
+        <h1 id="household-setup-heading">Set up your household</h1>
+        <p>Create a household or join an existing one using an invite code.</p>
+        <Link className="frontend-button" to="/household">
+          Create or Join a Household
+        </Link>
+      </section>
+    );
   }
 
   return (

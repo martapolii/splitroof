@@ -95,7 +95,7 @@ body {
 }
 
 body::before,
-.App-body:before,
+body::after,
 .App-body > .dotted-bg {
   position: fixed;
   top: 0;
@@ -190,7 +190,7 @@ img {
   position: relative;
 }
 
-.App-body:before {
+body::after {
   content: '';
   background-color: rgba(0, 0, 0, 0.5);
   z-index: -1;
@@ -362,6 +362,10 @@ a:hover {
 
 .form-container h2 {
   text-align: center;
+}
+
+.create-household-section {
+  margin-bottom: 20px;
 }
 
 label {
