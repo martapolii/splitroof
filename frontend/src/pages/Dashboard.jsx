@@ -85,9 +85,21 @@ const toChartData = (data = {}) => {
       })),
     }));
 
+  // whole household by category, also from /current (#141)
+  const categories = (Array.isArray(data.byCategory) ? data.byCategory : [])
+    .map((item) => ({
+      id: `category-${item?.category || 'Other'}`,
+      category: item?.category || 'Other',
+      value: reportAmount(item),
+      color: CATEGORY_COLOR[item?.category] || '#808080',
+    }))
+    .filter((item) => item.value > 0)
+    .sort(byHighestValue);
+
   return {
     hasHousehold: Boolean(data.household),
     shares,
+    categories,
     month,
     // dashboard totals come from the backend (#93)
     spent: dollars(data.spentCents),
@@ -239,15 +251,25 @@ const MemberCategories = ({ open, memberId, categories }) => {
 
 const HouseholdDashboard = ({
   shares = [],
+  categories = [],
   spent = 0,
   balance = 0,
   hasHousehold = false,
   currentUser = '',
 }) => {
   const [openMember, setOpenMember] = useState('');
+  const [view, setView] = useState('member');
   const spendingRows = shares;
-  const selectedMember = spendingRows.find((item) => item.id === openMember);
-  const chartRows = selectedMember
+  const byCategory = view === 'category' && categories.length > 0;
+  const selectedMember = byCategory ? null : spendingRows.find((item) => item.id === openMember);
+  const chartRows = byCategory
+    ? categories.map((item) => ({
+      id: item.id,
+      title: item.category,
+      value: item.value,
+      color: item.color,
+    }))
+    : selectedMember
     ? (selectedMember.categories.length ? selectedMember.categories : [selectedMember]).map((item) => ({
       id: item.category ? `${selectedMember.id}-${item.category}` : selectedMember.id,
       title: item.category || selectedMember.member,
@@ -287,6 +309,7 @@ const HouseholdDashboard = ({
     balance,
     currentUser,
     openMember,
+    view,
     spendingRows.map((item) => `${item.id}:${item.value}`).join('|'),
   ].join(':');
 
@@ -378,19 +401,53 @@ const HouseholdDashboard = ({
                   </p>
                 ) : (
                   <table className="dashboard-report">
-                    <caption>Household spending</caption>
+                    <caption>
+                      Household spending
+                      {/* switch the report between members and categories (HM3) */}
+                      {categories.length > 0 ? (
+                        <span className="report-view-options" role="group" aria-label="Show the report by">
+                          <button
+                            type="button"
+                            className="report-chip"
+                            aria-pressed={!byCategory}
+                            onClick={() => setView('member')}
+                          >
+                            By member
+                          </button>
+                          <button
+                            type="button"
+                            className="report-chip"
+                            aria-pressed={byCategory}
+                            onClick={() => {
+                              setOpenMember('');
+                              setView('category');
+                            }}
+                          >
+                            By category
+                          </button>
+                        </span>
+                      ) : null}
+                    </caption>
                     <colgroup>
                       <col className="member" />
                       <col className="amount" />
                     </colgroup>
                     <thead>
                       <tr>
-                        <th scope="col">Member</th>
+                        <th scope="col">{byCategory ? 'Category' : 'Member'}</th>
                         <th scope="col">Amount</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {spendingRows.map((item) => {
+                      {byCategory ? categories.map((item) => (
+                        <tr key={item.id}>
+                          <th scope="row">
+                            <span className="budget-legend-dot" style={{ background: item.color }} />
+                            {item.category}
+                          </th>
+                          <td>{formatMoney(item.value)}</td>
+                        </tr>
+                      )) : spendingRows.map((item) => {
                         const open = openMember === item.id;
                         return (
                           <Fragment key={item.id}>
@@ -541,6 +598,7 @@ export default function Dashboard() {
   return (
     <HouseholdDashboard
       shares={chart.shares}
+      categories={chart.categories}
       spent={chart.spent}
       balance={chart.balance}
       hasHousehold={chart.hasHousehold}
