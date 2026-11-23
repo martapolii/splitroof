@@ -35,8 +35,8 @@ export default function RecentExpenses({ householdId, refreshKey = 0 }) {
         });
 
         setUsernames(names);
-        // The server returns up to 50 expenses, newest first by date. Show them all so
-        // an expense saved with a past date still shows up.
+        // The server returns up to 50 expenses, newest first by date. Show them all,
+        // cutting to the first 10 left out an expense saved with a past date.
         setExpenses(Array.isArray(expenseList) ? expenseList : []);
       } catch (err) {
         if (!cancelled) setError(err.message);
