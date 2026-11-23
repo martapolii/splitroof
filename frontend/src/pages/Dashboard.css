@@ -7,6 +7,10 @@
   max-width: none;
 }
 
+.household-actions {
+  padding-bottom: 10px;
+}
+
 .dashboard-chart.flex {
   flex-wrap: nowrap;
   align-items: center;
