@@ -86,7 +86,7 @@ export default function Balances() {
       {loading && <p className="muted">Loading balances...</p>}
 
       {!loading && error && (
-        <p className="error" role="alert">
+        <p className="info-box error" role="alert">
           {error}
         </p>
       )}

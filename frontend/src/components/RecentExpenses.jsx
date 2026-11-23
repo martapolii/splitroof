@@ -2,9 +2,6 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import "./RecentExpenses.css";
 
-// The server returns up to 50 expenses, newest first. Show the latest few.
-const SHOW_COUNT = 10;
-
 function formatMoney(cents) {
   return `$${(Number(cents) / 100).toFixed(2)}`;
 }
@@ -38,7 +35,9 @@ export default function RecentExpenses({ householdId, refreshKey = 0 }) {
         });
 
         setUsernames(names);
-        setExpenses(Array.isArray(expenseList) ? expenseList.slice(0, SHOW_COUNT) : []);
+        // The server returns up to 50 expenses, newest first by date. Show them all so
+        // an expense saved with a past date still shows up.
+        setExpenses(Array.isArray(expenseList) ? expenseList : []);
       } catch (err) {
         if (!cancelled) setError(err.message);
       } finally {
