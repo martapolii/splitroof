@@ -27,7 +27,8 @@ export default function Household() {
     async function loadHousehold() {
       try {
         const data = await HouseholdAPI.current();
-        if (!cancelled && data?.household?.id) setHouseholdId(data.household.id);
+        // Keep a household that was just created on this page while this was loading
+        if (!cancelled && data?.household?.id) setHouseholdId((id) => id || data.household.id);
       } catch (err) {
         console.error("Could not load the current household:", err);
       }
