@@ -1,10 +1,36 @@
+import { useEffect, useState } from "react";
+import AOS from "aos";
+import "aos/dist/aos.css";
+import CreateHouseholdForm from "../components/CreateHouseholdForm";
+import JoinHouseholdForm from "../components/JoinHouseholdForm";
+import InviteCodeSection from "../components/InviteCodeSection";
+
 export default function Household() {
+  const [householdId, setHouseholdId] = useState(
+    () => localStorage.getItem("householdId") || ""
+  );
+
+  const handleCreated = (result) => {
+    if (result?.id) {
+      setHouseholdId(result.id);
+    }
+  };
+
+  useEffect(() => {
+    AOS.init();
+  }, []);
+
   return (
-    <>
-      <h1>Household</h1>
-      <p className="muted">
-        Create a household, generate an invite code and join with a code go here (HA1, HA2, HM4).
-      </p>
-    </>
+    <div className="App">
+      <div className="App-body">
+        <div className="dotted-bg" aria-hidden="true" />
+        <div className='container container-2' data-aos="zoom-in-up">
+          <h1>Household</h1>
+          <CreateHouseholdForm onCreated={handleCreated} />
+          <JoinHouseholdForm />
+          {householdId && <InviteCodeSection householdId={householdId} />}
+        </div>
+      </div>
+    </div>
   );
 }

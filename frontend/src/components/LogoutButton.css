@@ -1,0 +1,13 @@
+.logout-btn {
+  padding: 6px 14px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.logout-btn:hover {
+  opacity: 0.8;
+}

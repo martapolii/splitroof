@@ -1,0 +1,46 @@
+name: SplitRoof CI Tests
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Backend Dependencies & Run API Tests
+        working-directory: ./backend
+        run: |
+          npm ci
+          npm test
+
+      # The tests mock firebase.js, so this starts the real server to catch a crash on start
+      - name: Check the API Starts
+        working-directory: ./backend
+        run: |
+          # throwaway key made for this run, the server just needs one to start
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/ci-key.pem
+          export FIREBASE_PROJECT_ID=ci-check
+          export FIREBASE_CLIENT_EMAIL=ci@ci-check.iam.gserviceaccount.com
+          export FIREBASE_PRIVATE_KEY="$(cat /tmp/ci-key.pem)"
+          PORT=3000 node src/server.js &
+          server_pid=$!
+          # keeps trying for about 30 seconds in case the server is slow to start
+          curl --fail --retry 10 --retry-delay 3 --retry-connrefused http://127.0.0.1:3000/api/health
+          kill $server_pid
+
+      - name: Install Frontend Dependencies & Run UI Tests
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm test -- --watchAll=false
