@@ -181,9 +181,61 @@ async function getCurrentHousehold(req, res, next) {
       .get();
     const expenses = snap.docs.map((doc) => doc.data());
     const month = torontoMonth();
-    const spentCents = expenses
-      .filter((expense) => String(expense.date || "").startsWith(`${month}-`))
-      .reduce((sum, expense) => sum + expense.amountCents, 0);
+
+    // Use the same Toronto month for the spending total and report (#141)
+    const monthlyExpenses = expenses.filter((expense) =>
+      String(expense.date || "").startsWith(`${month}-`)
+    );
+    const spentCents = monthlyExpenses.reduce(
+      (sum, expense) => sum + expense.amountCents,
+      0
+    );
+
+    const categoryTotals = new Map();
+    const memberTotals = new Map();
+    const usernames = new Map(members.map(({ uid, username }) => [uid, username]));
+
+    for (const expense of monthlyExpenses) {
+      const category = expense.category || "Other";
+      categoryTotals.set(
+        category,
+        (categoryTotals.get(category) || 0) + expense.amountCents
+      );
+
+      // Add each member's saved share to their monthly and category totals (#141)
+      for (const share of expense.shares) {
+        if (share.amountCents === 0) continue;
+
+        const uid = shareUserId(share);
+        const member = memberTotals.get(uid) || {
+          totalCents: 0,
+          categories: new Map(),
+        };
+
+        member.totalCents += share.amountCents;
+        member.categories.set(
+          category,
+          (member.categories.get(category) || 0) + share.amountCents
+        );
+        memberTotals.set(uid, member);
+      }
+    }
+
+    const toCategoryRows = (totals) =>
+      [...totals]
+        .map(([category, totalCents]) => ({ category, totalCents }))
+        .sort((a, b) => a.category.localeCompare(b.category));
+
+    const byCategory = toCategoryRows(categoryTotals);
+    const byMember = [...memberTotals]
+      .map(([uid, member]) => ({
+        uid,
+        username: usernames.get(uid) || uid,
+        totalCents: member.totalCents,
+        categories: toCategoryRows(member.categories),
+      }))
+      .sort((a, b) => a.uid.localeCompare(b.uid));
+
     const mine = runningBalances(req.household.memberIds, expenses)
       .find((row) => row.userId === req.user.uid);
 
@@ -193,6 +245,8 @@ async function getCurrentHousehold(req, res, next) {
       members,
       month,
       spentCents,
+      byCategory,
+      byMember,
       balanceCents: mine ? mine.balanceCents : 0,
     });
   } catch (err) {
