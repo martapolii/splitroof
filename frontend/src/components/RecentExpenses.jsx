@@ -2,25 +2,43 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import "./RecentExpenses.css";
 
-function formatMoney(amount) {
-  return `$${Number(amount).toFixed(2)}`;
+// The server returns up to 50 expenses, newest first. Show the latest few.
+const SHOW_COUNT = 10;
+
+function formatMoney(cents) {
+  return `$${(Number(cents) / 100).toFixed(2)}`;
 }
 
 // refreshKey: when this number changes, the list reloads.
 export default function RecentExpenses({ householdId, refreshKey = 0 }) {
   const [expenses, setExpenses] = useState([]);
+  const [usernames, setUsernames] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!householdId) return;
+
     let cancelled = false;
 
     async function load() {
       setLoading(true);
       setError("");
       try {
-        const data = await apiFetch(`/api/households/${householdId}/expenses?limit=10`);
-        if (!cancelled) setExpenses(data.expenses || []);
+        const [expenseList, members] = await Promise.all([
+          apiFetch(`/api/households/${householdId}/expenses`),
+          apiFetch(`/api/households/${householdId}/members`),
+        ]);
+        if (cancelled) return;
+
+        // payerId is a user id, so look the username up from the members list.
+        const names = {};
+        (Array.isArray(members) ? members : []).forEach((m) => {
+          names[m.uid] = m.username || "Unknown";
+        });
+
+        setUsernames(names);
+        setExpenses(Array.isArray(expenseList) ? expenseList.slice(0, SHOW_COUNT) : []);
       } catch (err) {
         if (!cancelled) setError(err.message);
       } finally {
@@ -50,10 +68,10 @@ export default function RecentExpenses({ householdId, refreshKey = 0 }) {
               <div>
                 <strong>{e.description}</strong>
                 <div className="expense-meta">
-                  {e.category} | paid by {e.payerName} | {e.date}
+                  {e.category} | paid by {usernames[e.payerId] || "Unknown"} | {e.date}
                 </div>
               </div>
-              <span className="expense-amount">{formatMoney(e.amount)}</span>
+              <span className="expense-amount">{formatMoney(e.amountCents)}</span>
             </li>
           ))}
         </ul>
