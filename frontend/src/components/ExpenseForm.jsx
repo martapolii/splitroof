@@ -40,7 +40,7 @@ function memberLabels(members) {
   });
 }
 
-export default function ExpenseForm() {
+export default function ExpenseForm({ onSaved }) { // #68: added { onSaved }
   const [householdId, setHouseholdId] = useState("");
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -224,6 +224,7 @@ export default function ExpenseForm() {
       setSplitMode("equal");
       setAmountShares({});
       setPercentShares({});
+      onSaved?.(); // #68: tell the page to reload the recent expenses
     } catch (err) {
       setFormError(err.message || "Could not save this expense.");
     } finally {
