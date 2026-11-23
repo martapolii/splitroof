@@ -667,6 +667,37 @@ describe("POST /api/households/:householdId/expenses", () => {
     ]);
   });
 
+  it("saves $50, $30, and $20 custom amounts and returns them to another household member", async () => {
+    const expenses = "/api/households/houseA/expenses";
+    const shares = [
+      { userId: "alex", amountCents: 5000 },
+      { userId: "sam", amountCents: 3000 },
+      { userId: "pat", amountCents: 2000 },
+    ];
+    const created = await request(app)
+      .post(expenses)
+      .set("Authorization", "Bearer alex-token")
+      .send({
+        amountCents: 10000,
+        description: "Dinner",
+        date: "2026-11-13",
+        payerId: "alex",
+        category: "Groceries",
+        split: "custom",
+        shares,
+      });
+
+    expect(created.status).toBe(201);
+    expect(created.body.shares).toEqual(shares);
+    const listed = await request(app)
+      .get(expenses)
+      .set("Authorization", "Bearer sam-token");
+    expect(listed.status).toBe(200);
+    expect(listed.body).toContainEqual(expect.objectContaining({
+      id: created.body.id, amountCents: 10000, shares,
+    }));
+  });
+
   it("rejects an expense when the category is missing and saves nothing", async () => {
     const res = await request(app)
       .post("/api/households/houseA/expenses")
