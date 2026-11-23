@@ -928,6 +928,8 @@ describe("GET /api/households/current", () => {
       members: [{ uid: "sam", username: "Sam" }, { uid: "alex", username: "Alex" }],
       month: expect.stringMatching(/^\d{4}-\d{2}$/),
       spentCents: 0,
+      byCategory: [],
+      byMember: [],
       balanceCents: 0,
     });
   });
@@ -1181,6 +1183,7 @@ describe("GET /api/households/current dashboard numbers (#93)", () => {
     addExpense("groceries", {
       amountCents: 1000,
       date: "2026-11-03",
+      category: "Groceries",
       payerId: "alex",
       shares: [
         { userId: "alex", amountCents: 334 },
@@ -1191,6 +1194,7 @@ describe("GET /api/households/current dashboard numbers (#93)", () => {
     addExpense("internet", {
       amountCents: 3000,
       date: "2026-11-10",
+      category: "Utilities",
       payerId: "sam",
       split: "custom",
       shares: [
@@ -1208,6 +1212,40 @@ describe("GET /api/households/current dashboard numbers (#93)", () => {
     expect(res.body.spentCents).toBe(4000);
     // alex paid 1000 and owes 334, and is not in the internet bill
     expect(res.body.balanceCents).toBe(666);
+
+    // check each member's assigned shares across both categories (#141)
+    expect(res.body.byCategory).toEqual([
+      { category: "Groceries", totalCents: 1000 },
+      { category: "Utilities", totalCents: 3000 },
+    ]);
+    expect(res.body.byMember).toEqual([
+      {
+        uid: "alex",
+        username: "Alex",
+        totalCents: 334,
+        categories: [{ category: "Groceries", totalCents: 334 }],
+      },
+      {
+        uid: "pat",
+        username: "pat",
+        totalCents: 2333,
+        categories: [
+          { category: "Groceries", totalCents: 333 },
+          { category: "Utilities", totalCents: 2000 },
+        ],
+      },
+      {
+        uid: "sam",
+        username: "Sam",
+        totalCents: 1333,
+        categories: [
+          { category: "Groceries", totalCents: 333 },
+          { category: "Utilities", totalCents: 1000 },
+        ],
+      },
+    ]);
+
+
   });
 
   it("counts only this month in the spending but keeps older months in the balance", async () => {
@@ -1238,6 +1276,13 @@ describe("GET /api/households/current dashboard numbers (#93)", () => {
     expect(res.status).toBe(200);
     expect(res.body.spentCents).toBe(600);
     expect(res.body.balanceCents).toBe(-30000 + 600 - 300);
+
+    // the report includes only November shares (#141)
+    expect(res.body.byCategory).toEqual([{ category: "Other", totalCents: 600 }]);
+    expect(res.body.byMember).toEqual([
+      expect.objectContaining({ uid: "alex", totalCents: 300 }),
+      expect.objectContaining({ uid: "pat", totalCents: 300 }),
+    ]);
   });
 
   it("does not count another household's expenses", async () => {
@@ -1259,6 +1304,8 @@ describe("GET /api/households/current dashboard numbers (#93)", () => {
     expect(res.status).toBe(200);
     expect(res.body.spentCents).toBe(0);
     expect(res.body.balanceCents).toBe(0);
+    expect(res.body.byCategory).toEqual([]);
+    expect(res.body.byMember).toEqual([]);
   });
 
   it("shows an older balance when nothing was spent this month", async () => {
