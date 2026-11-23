@@ -1,0 +1,30 @@
+.recent-expenses {
+  margin-top: 32px;
+}
+
+.expense-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.expense-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.expense-meta {
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+.expense-amount {
+  font-weight: 700;
+}
+
+.recent-error {
+  color: var(--red);
+}
