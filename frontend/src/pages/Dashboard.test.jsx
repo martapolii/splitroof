@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import Dashboard from "./Dashboard";
 import { HouseholdAPI } from "../api.js";
@@ -49,4 +49,32 @@ test("asks a user with no household to create or join one", async () => {
 expect(
   await screen.findByRole("link", { name: "Create or Join a Household" })
 ).toHaveAttribute("href", "/household");
+});
+
+// HM3 test 1: the monthly report by member (each person's share) and by category (#141)
+test("shows the report by member and by category", async () => {
+  HouseholdAPI.current.mockResolvedValue({
+    ...household,
+    spentCents: 9000,
+    balanceCents: 1500,
+    byCategory: [{ category: "Rent", totalCents: 6000 }, { category: "Groceries", totalCents: 3000 }],
+    byMember: [
+      { uid: "alex", username: "Alex", totalCents: 4500, categories: [{ category: "Rent", totalCents: 3000 }, { category: "Groceries", totalCents: 1500 }] },
+      { uid: "sam", username: "Sam", totalCents: 4500, categories: [{ category: "Rent", totalCents: 3000 }, { category: "Groceries", totalCents: 1500 }] },
+    ],
+  });
+  render(<Dashboard />, { wrapper: MemoryRouter });
+
+  expect(await screen.findByRole("button", { name: "Sam" })).toBeInTheDocument();
+  expect(screen.getAllByText("$45.00").length).toBe(2);
+  expect(screen.queryByText("The report by category and member goes here (HM3).")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "By category" }));
+  expect(screen.getByRole("columnheader", { name: "Category" })).toBeInTheDocument();
+  expect(screen.getByText("$60.00")).toBeInTheDocument();
+  expect(screen.getByText("$30.00")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Sam" })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "By member" }));
+  expect(await screen.findByRole("button", { name: "Sam" })).toBeInTheDocument();
 });
