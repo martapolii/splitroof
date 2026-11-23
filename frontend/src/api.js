@@ -64,6 +64,10 @@ export const HouseholdAPI = {
       method: "POST",
       body: { name },
     }),
+  balances: (householdId) =>
+    apiFetch(`/api/households/${encodeURIComponent(householdId)}/balances`),
+  debts: (householdId) =>
+    apiFetch(`/api/households/${encodeURIComponent(householdId)}/debts`),
 };
 
 export const AuthAPI = {
