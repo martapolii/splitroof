@@ -59,6 +59,7 @@ function signUpError(error) {
 
 export const HouseholdAPI = {
   current: () => apiFetch("/api/households/current"),
+  owedToMe: (householdId) => apiFetch(`/api/households/${householdId}/owed-to-me`),
   create: (name) =>
     apiFetch("/api/households", {
       method: "POST",
